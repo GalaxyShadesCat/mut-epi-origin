@@ -27,7 +27,7 @@ ENV/
 .idea/
 .vscode/
 
-# Project outputs
+# Outputs
 outputs/
 
 # Tools
