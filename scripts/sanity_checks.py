@@ -283,7 +283,7 @@ def check_mutation_file_shape(cfg: SanityConfig) -> None:
 
 
 def check_sample_selection_and_df(cfg: SanityConfig) -> pd.DataFrame:
-    from scripts.sample_subset_compiler import compile_k_samples
+    from scripts.sample_selector import compile_k_samples
 
     mut_paths = _as_path_list(cfg.mut_path)
     mut_arg: Union[Path, List[Path]] = mut_paths[0] if len(mut_paths) == 1 else mut_paths

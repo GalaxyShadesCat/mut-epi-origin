@@ -1,5 +1,5 @@
 """
-sample_subset_compiler.py
+sample_selector.py
 
 Purpose
 -------
@@ -36,6 +36,7 @@ Notes
 from __future__ import annotations
 
 import random
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple, Union
@@ -54,7 +55,7 @@ def _normalise_tumour_whitelist(tumour_whitelist: Optional[Sequence[str]]) -> Se
 
 
 def _apply_tumour_filter(
-    df: pd.DataFrame, tumour_whitelist: Optional[Sequence[str]]
+        df: pd.DataFrame, tumour_whitelist: Optional[Sequence[str]]
 ) -> pd.DataFrame:
     allowed = _normalise_tumour_whitelist(tumour_whitelist)
     if not allowed or df.empty:
@@ -339,6 +340,84 @@ def extract_mutations_for_samples(
 
     out = pd.concat(kept, ignore_index=True)
     return out
+
+
+def count_mutations_per_sample(
+        bed_path: str | Path,
+        chunksize: int = 250_000,
+        *,
+        sample_id_col_override: Optional[int] = None,
+        tumour_whitelist: Optional[Sequence[str]] = None,
+) -> Dict[str, int]:
+    """
+    Return per-sample mutation counts after standardisation and optional tumour filtering.
+    """
+    bed_path = Path(bed_path)
+    fmt = detect_mutation_format(bed_path, sample_id_col_override=sample_id_col_override)
+    counts: Dict[str, int] = defaultdict(int)
+
+    for raw_chunk in pd.read_csv(
+            bed_path,
+            sep="\t",
+            header=None,
+            dtype=str,
+            chunksize=chunksize,
+            low_memory=False,
+    ):
+        chunk = _project_chunk_to_standard_schema(raw_chunk, fmt)
+
+        for c in COLNAMES:
+            chunk[c] = chunk[c].fillna("").astype(str).str.strip()
+
+        chunk["Chromosome"] = chunk["Chromosome"].map(canonicalise_contig)
+        chunk = chunk.loc[chunk["Chromosome"].notna()]
+
+        chunk["Start"] = chunk["Start"].str.replace(r"\.0$", "", regex=True)
+        chunk["End"] = chunk["End"].str.replace(r"\.0$", "", regex=True)
+        chunk["Sample_ID"] = chunk["Sample_ID"].str.strip()
+
+        chunk = _apply_tumour_filter(chunk, tumour_whitelist)
+        chunk = chunk.loc[chunk["Sample_ID"] != ""]
+        if chunk.empty:
+            continue
+
+        for sample_id, n in chunk["Sample_ID"].value_counts().items():
+            counts[str(sample_id)] += int(n)
+
+    return dict(counts)
+
+
+def count_mutations_per_sample_multi(
+        bed_paths: Sequence[str | Path],
+        chunksize: int = 250_000,
+        *,
+        sample_id_col_overrides: Optional[Dict[str, int]] = None,
+        tumour_whitelist: Optional[Sequence[str]] = None,
+) -> Dict[str, int]:
+    """
+    Return per-(file, sample) mutation counts keyed by "<stem>::<sample_id>".
+    """
+    overrides = sample_id_col_overrides or {}
+    counts: Dict[str, int] = defaultdict(int)
+
+    for p in [Path(x) for x in bed_paths]:
+        override = None
+        if str(p) in overrides:
+            override = overrides[str(p)]
+        elif p.name in overrides:
+            override = overrides[p.name]
+
+        per_file = count_mutations_per_sample(
+            p,
+            chunksize=chunksize,
+            sample_id_col_override=override,
+            tumour_whitelist=tumour_whitelist,
+        )
+        stem = p.stem
+        for sid, n in per_file.items():
+            counts[f"{stem}::{sid}"] += int(n)
+
+    return dict(counts)
 
 
 # -----------------------------

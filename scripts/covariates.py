@@ -19,19 +19,15 @@ Notes
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import numpy as np
-
-try:
-    import pysam
-except ImportError as e:
-    raise ImportError("pysam is required for FASTA-based covariates. Install with: pip install pysam") from e
+import pysam
 
 from scripts.bigwig_utils import get_bigwig_chrom_lengths, mean_per_bin_bigwig
 from scripts.contigs import ContigResolver, is_primary_canonical
+
 
 def _fetch_seq(fasta: pysam.FastaFile, chrom: str, start: int, end: int, resolver: ContigResolver) -> str:
     # pysam fetch uses 0-based half-open coordinates
@@ -71,17 +67,17 @@ def cpg_frequency_per_bin(fasta_path: str | Path, chrom: str, bin_edges: np.ndar
             out[i] = 0.0
             continue
         # Count overlapping "CG" occurrences
-        cpg = sum(1 for j in range(len(seq) - 1) if seq[j : j + 2] == "CG")
+        cpg = sum(1 for j in range(len(seq) - 1) if seq[j: j + 2] == "CG")
         out[i] = cpg / max((e - s), 1)
     fasta.close()
     return out
 
 
 def trinuc_frequency_per_bin(
-    fasta_path: str | Path,
-    chrom: str,
-    bin_edges: np.ndarray,
-    trinucs: Optional[List[str]] = None,
+        fasta_path: str | Path,
+        chrom: str,
+        bin_edges: np.ndarray,
+        trinucs: Optional[List[str]] = None,
 ) -> Dict[str, np.ndarray]:
     """
     Returns dict: {trinuc: frequency_per_bin} where frequency is count / bin_length.
@@ -112,12 +108,11 @@ def trinuc_frequency_per_bin(
 
         # Sliding window trinuc count
         for t in trinucs:
-            cnt = sum(1 for j in range(len(seq) - 2) if seq[j : j + 3] == t)
+            cnt = sum(1 for j in range(len(seq) - 2) if seq[j: j + 3] == t)
             out[t][i] = cnt / L
 
     fasta.close()
     return out
-
 
 
 def bigwig_mean_per_bin(bigwig_path: str | Path, chrom: str, bin_edges: np.ndarray) -> np.ndarray:
