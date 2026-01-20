@@ -31,7 +31,7 @@ ENV/
 outputs/
 
 # Tools
-tools/
+tools/picard.jar
 
 # Data (keep folder structure via .gitkeep and README files)
 data/**
