@@ -930,7 +930,7 @@ def run_grid_experiment(
         standardise_scope: str = "per_chrom",
         verbose: bool = False,
         # local score settings
-        score_window_bins: int = 5,
+        score_window_bins: int = 1,
         score_corr_type: str = "pearson",
         score_smoothing: str = "none",
         score_smooth_param: float | int | None = None,
@@ -939,21 +939,21 @@ def run_grid_experiment(
         score_weights: Tuple[float, float] = (0.7, 0.3),
         # track params (derived from per-track grids)
         # per-track hyperparameter grids
-        counts_raw_bins: Sequence[int] | int | str = (100_000,),
-        counts_gauss_bins: Sequence[int] | int | str = (100_000,),
-        inv_dist_gauss_bins: Sequence[int] | int | str = (100_000,),
-        exp_decay_bins: Sequence[int] | int | str = (100_000,),
-        exp_decay_adaptive_bins: Sequence[int] | int | str = (100_000,),
+        counts_raw_bins: Sequence[int] | int | str = (1_000_000,),
+        counts_gauss_bins: Sequence[int] | int | str = (1_000_000,),
+        inv_dist_gauss_bins: Sequence[int] | int | str = (1_000_000,),
+        exp_decay_bins: Sequence[int] | int | str = (1_000_000,),
+        exp_decay_adaptive_bins: Sequence[int] | int | str = (1_000_000,),
         counts_gauss_sigma_grid: Sequence[float] | float | str = (1.0,),
         counts_gauss_sigma_units: str = "bins",
         inv_dist_gauss_sigma_grid: Sequence[float] | float | str = (0.5,),
         inv_dist_gauss_max_distance_bp_grid: Sequence[int] | int | str = (1_000_000,),
         inv_dist_gauss_pairs: Optional[Sequence[Tuple[float, int]]] = None,
         inv_dist_gauss_sigma_units: str = "bins",
-        exp_decay_decay_bp_grid: Sequence[float] | float | str = (200_000.0,),
+        exp_decay_decay_bp_grid: Sequence[int] | int | str = (200_000,),
         exp_decay_max_distance_bp_grid: Sequence[int] | int | str = (1_000_000,),
         exp_decay_adaptive_k_grid: Sequence[int] | int | str = (5,),
-        exp_decay_adaptive_min_bandwidth_bp_grid: Sequence[float] | float | str = (50_000.0,),
+        exp_decay_adaptive_min_bandwidth_bp_grid: Sequence[int] | int | str = (50_000,),
         exp_decay_adaptive_max_distance_bp_grid: Sequence[int] | int | str = (1_000_000,),
         downsample_counts: Optional[Sequence[int] | int | str] = None,
         # IO
@@ -991,7 +991,7 @@ def run_grid_experiment(
         inv_dist_gauss_max_distance_bp_grid, name="inv_dist_gauss_max_distance_bp_grid", cast=int
     )
     exp_decay_decay_bp_grid = expand_grid_values(
-        exp_decay_decay_bp_grid, name="exp_decay_decay_bp_grid", cast=float
+        exp_decay_decay_bp_grid, name="exp_decay_decay_bp_grid", cast=int
     )
     exp_decay_max_distance_bp_grid = expand_grid_values(
         exp_decay_max_distance_bp_grid, name="exp_decay_max_distance_bp_grid", cast=int
@@ -1002,7 +1002,7 @@ def run_grid_experiment(
     exp_decay_adaptive_min_bandwidth_bp_grid = expand_grid_values(
         exp_decay_adaptive_min_bandwidth_bp_grid,
         name="exp_decay_adaptive_min_bandwidth_bp_grid",
-        cast=float,
+        cast=int,
     )
     exp_decay_adaptive_max_distance_bp_grid = expand_grid_values(
         exp_decay_adaptive_max_distance_bp_grid,
@@ -1053,10 +1053,10 @@ def run_grid_experiment(
     default_counts_sigma_bins = 1.0
     default_inv_sigma_bins = 0.5
     default_max_distance_bp = 1_000_000
-    default_exp_decay_bp = 200_000.0
+    default_exp_decay_bp = 200_000
     default_exp_max_distance_bp = 1_000_000
     default_adaptive_k = 5
-    default_adaptive_min_bandwidth_bp = 50_000.0
+    default_adaptive_min_bandwidth_bp = 50_000
     default_adaptive_max_distance_bp = 1_000_000
 
     normalised_dnase: Dict[str, Path] = {}
@@ -1104,6 +1104,7 @@ def run_grid_experiment(
             "Outputs\n"
             "-------\n"
             "results.csv: one row per run configuration with aggregated metrics.\n"
+            "grid_search_params.json: parameters used to build this grid search.\n"
             "runs/<run_id>/config.json: configuration used for that run.\n"
             "runs/<run_id>/chrom_summary.csv: per-chromosome metrics (per cell type).\n"
             "runs/<run_id>/per_bin.csv: per-bin tracks (optional; includes covariates + dnase_*).\n"
@@ -1113,12 +1114,64 @@ def run_grid_experiment(
             "best_celltype_*: winners per metric (most negative correlation).\n"
             "best_celltype_*_value: correlation value for that best cell type.\n"
             "best_minus_second_*: margin between best and second-best (larger is clearer).\n"
-            "best_celltype_local_score*: winners by local score (more negative is better).\n"
             "rf_perm_importances_mean_json: mean permutation importances across chroms.\n"
             "rf_feature_sign_corr_mean_json: mean feature sign correlations across chroms.\n"
             "ridge_coef_mean_json: mean ridge coefficients across chroms.\n",
             encoding="utf-8",
         )
+
+    grid_params_path = out_dir / "grid_search_params.json"
+    mut_path_out: str | list[str]
+    if isinstance(mut_path, (list, tuple)):
+        mut_path_out = [str(p) for p in mut_path]
+    else:
+        mut_path_out = str(mut_path)
+    grid_params = {
+        "mut_path": mut_path_out,
+        "fai_path": str(fai_path),
+        "fasta_path": str(fasta_path),
+        "dnase_bigwigs": {key: str(path) for key, path in dnase_bigwigs.items()},
+        "timing_bigwig": None if timing_bigwig is None else str(timing_bigwig),
+        "sample_sizes": list(sample_sizes),
+        "repeats": int(repeats),
+        "base_seed": int(base_seed),
+        "track_strategies": list(track_strategies),
+        "covariate_sets": covariate_sets,
+        "include_trinuc": bool(include_trinuc),
+        "chroms": None if chroms is None else list(chroms),
+        "standardise_tracks": bool(standardise_tracks),
+        "standardise_scope": str(standardise_scope),
+        "score_window_bins": int(score_window_bins),
+        "score_corr_type": str(score_corr_type),
+        "score_smoothing": str(score_smoothing),
+        "score_smooth_param": None if score_smooth_param is None else float(score_smooth_param),
+        "score_transform": str(score_transform),
+        "score_zscore": bool(score_zscore),
+        "score_weights": [float(score_weights[0]), float(score_weights[1])],
+        "counts_raw_bins": list(counts_raw_bins),
+        "counts_gauss_bins": list(counts_gauss_bins),
+        "inv_dist_gauss_bins": list(inv_dist_gauss_bins),
+        "exp_decay_bins": list(exp_decay_bins),
+        "exp_decay_adaptive_bins": list(exp_decay_adaptive_bins),
+        "counts_gauss_sigma_grid": list(counts_gauss_sigma_grid),
+        "counts_gauss_sigma_units": str(counts_gauss_sigma_units),
+        "inv_dist_gauss_sigma_grid": list(inv_dist_gauss_sigma_grid),
+        "inv_dist_gauss_max_distance_bp_grid": list(inv_dist_gauss_max_distance_bp_grid),
+        "inv_dist_gauss_pairs": None if inv_dist_gauss_pairs is None else [
+            [float(sigma), int(max_dist)] for sigma, max_dist in inv_dist_gauss_pairs
+        ],
+        "inv_dist_gauss_sigma_units": str(inv_dist_gauss_sigma_units),
+        "exp_decay_decay_bp_grid": list(exp_decay_decay_bp_grid),
+        "exp_decay_max_distance_bp_grid": list(exp_decay_max_distance_bp_grid),
+        "exp_decay_adaptive_k_grid": list(exp_decay_adaptive_k_grid),
+        "exp_decay_adaptive_min_bandwidth_bp_grid": list(exp_decay_adaptive_min_bandwidth_bp_grid),
+        "exp_decay_adaptive_max_distance_bp_grid": list(exp_decay_adaptive_max_distance_bp_grid),
+        "downsample_counts": list(downsample_grid),
+        "save_per_bin": bool(save_per_bin),
+        "chunksize": int(chunksize),
+        "tumour_whitelist": None if tumour_whitelist is None else list(tumour_whitelist),
+    }
+    save_json(grid_params, grid_params_path)
 
     fai = load_fai(fai_path)
     chrom_infos = list(iter_chroms(fai, chroms=chroms))
@@ -1944,7 +1997,7 @@ def main() -> None:
         help="Comma list or range spec [start,end,step] for exp_decay_adaptive max_distance_bp",
     )
 
-    parser.add_argument("--score-window-bins", type=int, default=5, help="Half-window size (bins) for local score")
+    parser.add_argument("--score-window-bins", type=int, default=1, help="Half-window size (bins) for local score")
     parser.add_argument(
         "--score-corr-type",
         type=str,
