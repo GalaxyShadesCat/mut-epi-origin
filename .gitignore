@@ -38,4 +38,5 @@ data/**
 !data/
 !data/**/
 !data/**/README*
+!data/raw/DNase-seq/celltype_dnase_map.json
 !data/raw/timing

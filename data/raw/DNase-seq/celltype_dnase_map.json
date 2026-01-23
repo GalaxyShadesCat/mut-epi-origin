@@ -1,0 +1,122 @@
+[
+  {
+    "key": "myelprog",
+    "name": "common myeloid progenitor (CD34+)",
+    "aliases": [
+      "myeloid progenitor",
+      "common myeloid progenitor",
+      "CD34+ myeloid progenitor"
+    ],
+    "dnase_path": "myelProg_ENCFF201IYJ.bigWig",
+    "tumour_types": [
+      "AML",
+      "LAML"
+    ]
+  },
+  {
+    "key": "nkc",
+    "name": "natural killer (NK) cell",
+    "aliases": [
+      "natural killer cell",
+      "NK cell"
+    ],
+    "dnase_path": "NKC_ENCFF448RXA.bigWig",
+    "tumour_types": [
+      "NKTL"
+    ]
+  },
+  {
+    "key": "kera",
+    "name": "foreskin keratinocyte (male newborn)",
+    "aliases": [
+      "keratinocyte",
+      "basal keratinocyte"
+    ],
+    "dnase_path": "kera_ENCFF597YXQ.bigWig",
+    "tumour_types": [
+      "BCC"
+    ]
+  },
+  {
+    "key": "smc",
+    "name": "smooth muscle cell of the brain vasculature",
+    "aliases": [
+      "smooth muscle cell"
+    ],
+    "dnase_path": "SMC_ENCFF913OTC.bigWig",
+    "tumour_types": [
+      "LMS"
+    ]
+  },
+  {
+    "key": "esoepi",
+    "name": "epithelial cell of oesophagus",
+    "aliases": [
+      "oesophageal epithelial cell",
+      "esophageal epithelial cell"
+    ],
+    "dnase_path": "esoEpi_ENCFF731MXF.bigWig",
+    "tumour_types": [
+      "ESAD",
+      "ESCA"
+    ]
+  },
+  {
+    "key": "neurostem",
+    "name": "neuronal stem cell",
+    "aliases": [
+      "neuronal stem cell",
+      "neuronal progenitor cell",
+      "neuronal stem / progenitor cell"
+    ],
+    "dnase_path": "neuroStem_ENCFF495MWO.bigWig",
+    "tumour_types": [
+      "NBL"
+    ]
+  },
+  {
+    "key": "astro_hippo",
+    "name": "astrocyte of the hippocampus",
+    "aliases": [
+      "hippocampal astrocyte"
+    ],
+    "dnase_path": "astro_ENCFF227QKB.bigWig",
+    "tumour_types": [
+      "GBM",
+      "LGG"
+    ]
+  },
+  {
+    "key": "astro_spinal",
+    "name": "astrocyte of the spinal cord",
+    "aliases": [
+      "spinal cord astrocyte"
+    ],
+    "dnase_path": "astro_ENCFF727GJL.bigWig",
+    "tumour_types": [
+      "GBM",
+      "LGG"
+    ]
+  },
+  {
+    "key": "mela",
+    "name": "foreskin melanocyte (male newborn)",
+    "aliases": [
+      "melanocyte"
+    ],
+    "dnase_path": "mela_ENCFF285GEW.bigWig",
+    "tumour_types": [
+      "SKCM",
+      "MELA"
+    ]
+  },
+  {
+    "key": "fibr",
+    "name": "foreskin fibroblast (male newborn)",
+    "aliases": [
+      "fibroblast"
+    ],
+    "dnase_path": "fibr_ENCFF355OPU.bigWig",
+    "tumour_types": []
+  }
+]
