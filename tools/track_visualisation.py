@@ -264,6 +264,13 @@ def init_state() -> None:
         "adaptive_min_bandwidth_bp": 50_000,
         "adaptive_max_distance_bp": 1_000_000,
         "local_score_w": 1,
+        "score_corr_type": "pearson",
+        "score_smoothing": "none",
+        "score_smooth_param": 1.0,
+        "score_transform": "none",
+        "score_zscore": False,
+        "score_weight_shape": 0.7,
+        "score_weight_slope": 0.3,
         "highlight_mode": "local_score",
     }
     config = load_config()
@@ -570,6 +577,54 @@ def main() -> None:
             step=1,
             key="local_score_w",
             help="Bin half-window size used for local score computation.",
+        )
+        score_corr_type = st.selectbox(
+            "Local score correlation type",
+            options=["pearson", "spearman"],
+            key="score_corr_type",
+            help="Correlation method for local score (shape and slope windows).",
+        )
+        score_smoothing = st.selectbox(
+            "Local score smoothing",
+            options=["none", "moving_average", "gaussian"],
+            key="score_smoothing",
+            help="Optional smoothing applied to both tracks before scoring.",
+        )
+        smooth_min = 1.0 if score_smoothing == "moving_average" else 0.05
+        smooth_step = 1.0 if score_smoothing == "moving_average" else 0.05
+        score_smooth_param = st.number_input(
+            "Local score smoothing parameter",
+            min_value=smooth_min,
+            step=smooth_step,
+            key="score_smooth_param",
+            help="Window size (moving_average) or sigma (gaussian); ignored when smoothing is none.",
+        )
+        score_transform = st.selectbox(
+            "Local score transform",
+            options=["none", "log1p"],
+            key="score_transform",
+            help="Optional transform applied to both tracks before smoothing (log1p requires non-negative values).",
+        )
+        score_zscore = st.checkbox(
+            "Local score z-score",
+            key="score_zscore",
+            help="Z-score both tracks before smoothing and scoring.",
+        )
+        score_weight_shape = st.number_input(
+            "Local score weight: shape",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+            key="score_weight_shape",
+            help="Weight on shape (raw correlation) component.",
+        )
+        score_weight_slope = st.number_input(
+            "Local score weight: slope",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+            key="score_weight_slope",
+            help="Weight on slope (first-difference correlation) component.",
         )
 
         st.subheader("counts_raw", help=TRACK_DESCRIPTIONS["counts_raw"])
@@ -897,6 +952,13 @@ def main() -> None:
         "adaptive_min_bandwidth_bp": int(adaptive_min_bandwidth_bp),
         "adaptive_max_distance_bp": int(adaptive_max_distance_bp),
         "local_score_w": int(local_score_w),
+        "score_corr_type": score_corr_type,
+        "score_smoothing": score_smoothing,
+        "score_smooth_param": float(score_smooth_param),
+        "score_transform": score_transform,
+        "score_zscore": bool(score_zscore),
+        "score_weight_shape": float(score_weight_shape),
+        "score_weight_slope": float(score_weight_slope),
         "highlight_mode": highlight_mode,
     }
     save_config(current_params)
@@ -1209,6 +1271,17 @@ def main() -> None:
         return "n/a" if not np.isfinite(value) else f"{value:.3f}"
 
     local_score_bins = int(max(1, int(local_score_w)))
+    if score_weight_shape + score_weight_slope <= 0:
+        st.error("Local score weights must sum to a positive value.")
+        return
+    score_weights = (float(score_weight_shape), float(score_weight_slope))
+    score_smooth_param_val: float | int | None
+    if score_smoothing == "none":
+        score_smooth_param_val = None
+    elif score_smoothing == "moving_average":
+        score_smooth_param_val = int(max(1, round(score_smooth_param)))
+    else:
+        score_smooth_param_val = float(score_smooth_param)
     resid_raw = linear_residualise(track_raw, X_raw) if covariates else None
     resid_gauss = linear_residualise(track_gauss, X_gauss) if covariates else None
     resid_inv = linear_residualise(track_inv, X_inv) if covariates else None
@@ -1238,35 +1311,115 @@ def main() -> None:
                 resid_raw[mask_raw],
                 resid_dnase_raw[mask_raw],
                 w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
             ).global_score
             anti_gauss = compute_local_scores(
                 resid_gauss[mask_gauss],
                 resid_dnase_gauss[mask_gauss],
                 w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
             ).global_score
             anti_inv = compute_local_scores(
                 resid_inv[mask_inv],
                 resid_dnase_inv[mask_inv],
                 w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
             ).global_score
             anti_exp = compute_local_scores(
                 resid_exp[mask_exp],
                 resid_dnase_exp[mask_exp],
                 w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
             ).global_score
             anti_adaptive = compute_local_scores(
                 resid_adaptive[mask_adaptive],
                 resid_dnase_adaptive[mask_adaptive],
                 w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
             ).global_score
         else:
             adj_raw = adj_gauss = adj_inv = float("nan")
             adj_exp = adj_adaptive = float("nan")
-            anti_raw = compute_local_scores(track_raw_win, dnase["raw"], w=local_score_bins).global_score
-            anti_gauss = compute_local_scores(track_gauss_win, dnase["gauss"], w=local_score_bins).global_score
-            anti_inv = compute_local_scores(track_inv_win, dnase["inv"], w=local_score_bins).global_score
-            anti_exp = compute_local_scores(track_exp_win, dnase["exp"], w=local_score_bins).global_score
-            anti_adaptive = compute_local_scores(track_adaptive_win, dnase["adaptive"], w=local_score_bins).global_score
+            anti_raw = compute_local_scores(
+                track_raw_win,
+                dnase["raw"],
+                w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
+            ).global_score
+            anti_gauss = compute_local_scores(
+                track_gauss_win,
+                dnase["gauss"],
+                w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
+            ).global_score
+            anti_inv = compute_local_scores(
+                track_inv_win,
+                dnase["inv"],
+                w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
+            ).global_score
+            anti_exp = compute_local_scores(
+                track_exp_win,
+                dnase["exp"],
+                w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
+            ).global_score
+            anti_adaptive = compute_local_scores(
+                track_adaptive_win,
+                dnase["adaptive"],
+                w=local_score_bins,
+                corr_type=score_corr_type,
+                smoothing=score_smoothing,
+                smooth_param=score_smooth_param_val,
+                transform=score_transform,
+                zscore=score_zscore,
+                weights=score_weights,
+            ).global_score
 
         dnase_corr_rows.append(
             {

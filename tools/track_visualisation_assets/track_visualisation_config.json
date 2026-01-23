@@ -2,14 +2,13 @@
   "adaptive_k": 5,
   "adaptive_max_distance_bp": 1000000,
   "adaptive_min_bandwidth_bp": 50000,
-  "local_score_w": 1,
   "bed_path": "/home/lem/projects/mut-epi-origin/data/processed/mela_icgc_approx_3000.bed",
   "bin_size_adaptive": 1000000,
   "bin_size_counts_gauss": 1000000,
   "bin_size_counts_raw": 1000000,
   "bin_size_exp": 1000000,
   "bin_size_inv": 1000000,
-  "chrom": "all",
+  "chrom": "chr3",
   "covariates": [
     "gc",
     "cpg"
@@ -37,7 +36,15 @@
   "fai_path": "/home/lem/projects/mut-epi-origin/data/raw/reference/GRCh37.fa.fai",
   "fasta_path": "/home/lem/projects/mut-epi-origin/data/raw/reference/GRCh37.fa",
   "highlight_mode": "local_score",
+  "local_score_w": 1,
   "max_distance_bp": 1000000,
+  "score_corr_type": "pearson",
+  "score_smooth_param": 1.0,
+  "score_smoothing": "none",
+  "score_transform": "none",
+  "score_weight_shape": 0.7,
+  "score_weight_slope": 0.3,
+  "score_zscore": false,
   "sigma_counts": 1.0,
   "sigma_inv": 0.5,
   "sigma_units_counts": "bins",
@@ -45,10 +52,10 @@
   "timing_bigwig": "/home/lem/projects/mut-epi-origin/data/raw/timing/repliSeq_SknshWaveSignalRep1.bigWig",
   "window_all": [
     0,
-    3095677412
+    198022430
   ],
   "window_all_slider": [
     0,
-    3095677412
+    198022430
   ]
 }
