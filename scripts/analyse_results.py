@@ -4,7 +4,7 @@ analyse_mut_vs_dnase_results.py
 Goal
 ----
 Given that "mela" is the correct cell type, analyse a results.csv produced by
-grid_search.py and report:
+scripts/grid_search/cli.py and report:
 
 1) The recommended "best" configuration (smallest k that still makes mela win clearly),
 2) The best configuration *per sample size (k)*,

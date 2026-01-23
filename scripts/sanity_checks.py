@@ -38,7 +38,7 @@ def _expect(cond: bool, pass_msg: str, fail_msg: str, *, hard: bool = False) -> 
 # -------------------------
 # Canonical + resolution helpers
 # -------------------------
-PRIMARY_CANONICAL: List[str] = [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY"]
+AUTOSOMES_CANONICAL: List[str] = [f"chr{i}" for i in range(1, 23)]
 
 
 def _is_chr_style(contig: str) -> bool:
@@ -187,16 +187,16 @@ def check_fai_primary_contigs(cfg: SanityConfig) -> List[str]:
     chroms = [c.chrom for c in chrom_infos]
 
     _expect(
-        len(chroms) == 24,
-        "iter_chroms() returned 24 primary contigs",
-        f"iter_chroms() returned {len(chroms)} contigs (expected 24). Got head: {chroms[:10]}",
+        len(chroms) == 22,
+        "iter_chroms() returned 22 autosomes",
+        f"iter_chroms() returned {len(chroms)} contigs (expected 22). Got head: {chroms[:10]}",
         hard=cfg.hard_fail,
     )
 
     _expect(
-        chroms == PRIMARY_CANONICAL,
-        "Primary contig list exactly chr1..chr22,chrX,chrY (internal standard)",
-        f"Primary contig list differs. First 10: {chroms[:10]}",
+        chroms == AUTOSOMES_CANONICAL,
+        "Autosome contig list exactly chr1..chr22 (default)",
+        f"Autosome contig list differs. First 10: {chroms[:10]}",
         hard=cfg.hard_fail,
     )
 

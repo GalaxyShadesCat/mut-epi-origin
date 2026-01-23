@@ -91,7 +91,13 @@ def _build_results_columns(
         "best_celltype_local_score_value",
         "best_minus_second_local_score",
         "correct_celltype_canon",
+        "pred_celltype_raw_canon",
+        "pred_celltype_linear_resid_canon",
+        "pred_celltype_rf_resid_canon",
         "pred_celltype_local_score_canon",
+        "is_correct_raw",
+        "is_correct_linear_resid",
+        "is_correct_rf_resid",
         "is_correct_local_score",
         "downsample_applied",
         "downsample_ratio",
@@ -174,11 +180,15 @@ def _extract_top_perm_feature(raw_json: Any) -> Tuple[Optional[str], Optional[fl
 
 def compute_derived_fields(row: Dict[str, Any]) -> Dict[str, Any]:
     correct = canonicalise_celltype(row.get("correct_celltypes"))
-    pred = canonicalise_celltype(row.get("best_celltype_local_score"))
-    if correct is not None and pred is not None:
-        is_correct = pred == correct
-    else:
-        is_correct = None
+    pred_raw = canonicalise_celltype(row.get("best_celltype_raw"))
+    pred_linear = canonicalise_celltype(row.get("best_celltype_linear_resid"))
+    pred_rf = canonicalise_celltype(row.get("best_celltype_rf_resid"))
+    pred_local = canonicalise_celltype(row.get("best_celltype_local_score"))
+
+    def _is_correct(pred: Optional[str]) -> Optional[bool]:
+        if correct is None or pred is None:
+            return None
+        return pred == correct
 
     pre = to_number(row.get("mutations_pre_downsample"))
     post = to_number(row.get("mutations_post_downsample"))
@@ -196,8 +206,14 @@ def compute_derived_fields(row: Dict[str, Any]) -> Dict[str, Any]:
 
     return {
         "correct_celltype_canon": correct,
-        "pred_celltype_local_score_canon": pred,
-        "is_correct_local_score": is_correct,
+        "pred_celltype_raw_canon": pred_raw,
+        "pred_celltype_linear_resid_canon": pred_linear,
+        "pred_celltype_rf_resid_canon": pred_rf,
+        "pred_celltype_local_score_canon": pred_local,
+        "is_correct_raw": _is_correct(pred_raw),
+        "is_correct_linear_resid": _is_correct(pred_linear),
+        "is_correct_rf_resid": _is_correct(pred_rf),
+        "is_correct_local_score": _is_correct(pred_local),
         "downsample_applied": downsample_applied,
         "downsample_ratio": downsample_ratio,
         "rf_top_feature_perm": top_key,

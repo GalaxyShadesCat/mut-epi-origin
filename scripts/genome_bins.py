@@ -13,7 +13,7 @@ from typing import Iterable, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from scripts.contigs import canonical_primary_list, canonicalise_contig
+from scripts.contigs import canonical_autosomes_list, canonicalise_contig
 
 @dataclass(frozen=True)
 class ChromInfo:
@@ -68,8 +68,8 @@ def iter_chroms(fai: pd.DataFrame, chroms: Optional[Sequence[str]] = None) -> It
         If provided, only yield these chromosomes (in this order). Chrom names may be:
           - "1".."22","X","Y","MT" (Ensembl/GRCh37 style)
           - "chr1".."chr22","chrX","chrY","chrM" (UCSC style)
-        If None, default to primary autosomes + sex chromosomes in UCSC style:
-          chr1..chr22, chrX, chrY
+        If None, default to autosomes in UCSC style:
+          chr1..chr22
 
     Behaviour / naming
     ------------------
@@ -98,7 +98,7 @@ def iter_chroms(fai: pd.DataFrame, chroms: Optional[Sequence[str]] = None) -> It
 
     # Default: primary chromosomes only, canonical style
     if chroms is None:
-        chroms = canonical_primary_list()
+        chroms = canonical_autosomes_list()
 
     # Canonicalise requested contigs and de-duplicate while preserving order
     requested: list[str] = []

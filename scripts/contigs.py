@@ -13,6 +13,10 @@ def canonical_primary_list() -> list[str]:
     return [f"chr{i}" for i in range(1, 23)] + ["chrX", "chrY"]
 
 
+def canonical_autosomes_list() -> list[str]:
+    return [f"chr{i}" for i in range(1, 23)]
+
+
 def canonicalise_contig(contig: str) -> Optional[str]:
     """
     Map a contig name to canonical UCSC-style primary contigs.

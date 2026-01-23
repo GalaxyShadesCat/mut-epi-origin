@@ -149,7 +149,23 @@ def _corr_windows(
 def _window_std(xw: np.ndarray) -> np.ndarray:
     if not np.isnan(xw).any():
         return xw.std(axis=1)
-    return np.nanstd(xw, axis=1)
+    if xw.size == 0:
+        return np.full(xw.shape[0], np.nan, dtype=float)
+    mask = np.isfinite(xw)
+    counts = mask.sum(axis=1)
+    out = np.full(xw.shape[0], np.nan, dtype=float)
+    valid = counts >= 2
+    if not np.any(valid):
+        return out
+    vals = np.where(mask, xw, 0.0)
+    sums = vals.sum(axis=1)
+    means = np.zeros_like(sums, dtype=float)
+    means[valid] = sums[valid] / counts[valid]
+    diffs = np.where(mask, xw - means[:, None], 0.0)
+    var = np.zeros_like(sums, dtype=float)
+    var[valid] = (diffs[valid] ** 2).sum(axis=1) / counts[valid]
+    out[valid] = np.sqrt(var[valid])
+    return out
 
 
 def _map_corr(corr: np.ndarray) -> np.ndarray:

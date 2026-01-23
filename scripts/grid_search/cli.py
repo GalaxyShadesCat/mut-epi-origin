@@ -50,9 +50,13 @@ def main() -> None:
 
     parser.add_argument("--out-dir", type=str, default="outputs/experiments/run1", help="Output directory")
     parser.add_argument("--base-seed", type=int, default=123)
-    parser.add_argument("--repeats", type=int, default=3)
-
-    parser.add_argument("--sample-sizes", type=str, default="1,5,10,20,all", help="Comma list; use 'all' for None")
+    parser.add_argument("--n-resamples", type=int, default=3, help="Number of resamples per k_samples entry")
+    parser.add_argument(
+        "--k-samples",
+        type=str,
+        default="1,5,10,20,all",
+        help="Comma list of cohort sizes; use 'all' for full cohort",
+    )
     parser.add_argument(
         "--downsample",
         type=str,
@@ -190,6 +194,13 @@ def main() -> None:
         choices=["none", "log1p"],
         help="Transform applied before local score",
     )
+    parser.add_argument(
+        "--score-residuals",
+        type=str,
+        default="linear",
+        choices=["none", "linear"],
+        help="Residualization strategy for local score (uses covariates when available).",
+    )
     parser.add_argument("--score-zscore", action="store_true", help="Z-score tracks before local score")
     parser.add_argument(
         "--score-weights",
@@ -212,6 +223,17 @@ def main() -> None:
         help="Comma list of chroms or omit for autosomes only in fai",
     )
     parser.add_argument("--save-per-bin", action="store_true", help="Save per-bin tables for inspection")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from an existing grid search output directory (uses grid_search_params.json).",
+    )
+    parser.add_argument(
+        "--per-sample-count",
+        type=int,
+        default=None,
+        help="Enable per-sample mode and limit to the first N samples (0 = all).",
+    )
     parser.add_argument("--no-standardise-tracks", action="store_true", help="Disable per-chrom track standardisation")
     parser.add_argument("--standardise-scope", type=str, default="per_chrom", help="Standardisation scope")
     parser.add_argument("--verbose", action="store_true", help="Enable INFO logging")
@@ -221,13 +243,13 @@ def main() -> None:
     log_level = logging.DEBUG if args.debug else (logging.DEBUG if args.verbose else logging.INFO)
     setup_rich_logging(level=log_level, logger_name="mut_vs_dnase", force=True)
 
-    sample_sizes = []
-    for tok in args.sample_sizes.split(","):
+    k_samples = []
+    for tok in args.k_samples.split(","):
         tok = tok.strip().lower()
         if tok == "all":
-            sample_sizes.append(None)
+            k_samples.append(None)
         else:
-            sample_sizes.append(int(tok))
+            k_samples.append(int(tok))
 
     track_strategies = [x.strip() for x in args.track_strategies.split(",") if x.strip()]
     counts_raw_bins = expand_grid_values(args.counts_raw_bins, name="counts_raw_bins", cast=int)
@@ -349,8 +371,8 @@ def main() -> None:
         dnase_bigwigs=dnase_bigwigs,
         celltype_map=celltype_map,
         timing_bigwig=args.timing_bw if args.timing_bw else None,
-        sample_sizes=sample_sizes,
-        repeats=args.repeats,
+        k_samples=k_samples,
+        n_resamples=args.n_resamples,
         base_seed=args.base_seed,
         track_strategies=track_strategies,
         covariate_sets=covariate_sets,
@@ -360,11 +382,14 @@ def main() -> None:
         standardise_tracks=not args.no_standardise_tracks,
         standardise_scope=args.standardise_scope,
         verbose=bool(args.verbose or args.debug),
+        resume=bool(args.resume),
+        per_sample_count=args.per_sample_count,
         score_window_bins=args.score_window_bins,
         score_corr_type=args.score_corr_type,
         score_smoothing=args.score_smoothing,
         score_smooth_param=args.score_smooth_param,
         score_transform=args.score_transform,
+        score_residuals=args.score_residuals,
         score_zscore=bool(args.score_zscore),
         score_weights=score_weights,
         out_dir=args.out_dir,
