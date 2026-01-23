@@ -1,7 +1,10 @@
 """
 dnase_map.py
 
-Load a cell-type -> DNase-seq path mapping with associated tumour types.
+Load and query a cell-type -> DNase-seq path mapping with associated tumour
+filters. Supports list- or dict-style JSON mappings (including an "entries"
+wrapper) and provides helpers to resolve aliases and infer acceptable cell
+types for tumour codes.
 """
 
 from __future__ import annotations
@@ -131,7 +134,7 @@ class DnaseCellTypeMap:
     def as_dnase_bigwigs(self) -> Mapping[str, Path]:
         return {entry.key: entry.dnase_path for entry in self._entries}
 
-    def tumour_whitelist(self) -> List[str]:
+    def tumour_filter(self) -> List[str]:
         seen = set()
         out: List[str] = []
         for entry in self._entries:

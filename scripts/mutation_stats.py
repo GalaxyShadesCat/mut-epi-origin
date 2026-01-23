@@ -59,13 +59,13 @@ class MutationStats:
 # -----------------------------
 # Helpers
 # -----------------------------
-def _normalise_tumour_whitelist(tumour_whitelist: Optional[Sequence[str]]) -> Set[str]:
-    if not tumour_whitelist:
+def _normalise_tumour_filter(tumour_filter: Optional[Sequence[str]]) -> Set[str]:
+    if not tumour_filter:
         return set()
-    return {str(x).strip().upper() for x in tumour_whitelist if str(x).strip()}
+    return {str(x).strip().upper() for x in tumour_filter if str(x).strip()}
 
 
-def _matches_tumour_whitelist(series: pd.Series, allowed: Set[str]) -> pd.Series:
+def _matches_tumour_filter(series: pd.Series, allowed: Set[str]) -> pd.Series:
     if not allowed:
         return pd.Series([True] * len(series), index=series.index)
 
@@ -281,7 +281,7 @@ def _reservoir_sample_rows_bed_no_header(
     seed: int,
     k: int,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     UV_mutations.bed appears tab-delimited with NO header.
@@ -295,7 +295,7 @@ def _reservoir_sample_rows_bed_no_header(
 
     colnames = ["Chromosome", "Start", "End", "Sample_ID", "Ref", "Alt", "Cancer_Type", "Trinuc_Context"]
 
-    allowed = _normalise_tumour_whitelist(tumour_whitelist)
+    allowed = _normalise_tumour_filter(tumour_filter)
 
     for chunk in pd.read_csv(
         path,
@@ -307,7 +307,7 @@ def _reservoir_sample_rows_bed_no_header(
         low_memory=False,
     ):
         if allowed:
-            mask = _matches_tumour_whitelist(chunk["Cancer_Type"], allowed)
+            mask = _matches_tumour_filter(chunk["Cancer_Type"], allowed)
             chunk = chunk.loc[mask]
             if chunk.empty:
                 continue
@@ -327,14 +327,14 @@ def _reservoir_sample_rows_bed_no_header_multi(
     seed: int,
     k: int,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     rng = random.Random(seed)
     reservoir: List[Dict[str, Any]] = []
     seen = 0
 
     colnames = ["Chromosome", "Start", "End", "Sample_ID", "Ref", "Alt", "Cancer_Type", "Trinuc_Context"]
-    allowed = _normalise_tumour_whitelist(tumour_whitelist)
+    allowed = _normalise_tumour_filter(tumour_filter)
 
     for path in paths:
         for chunk in pd.read_csv(
@@ -347,7 +347,7 @@ def _reservoir_sample_rows_bed_no_header_multi(
             low_memory=False,
         ):
             if allowed:
-                mask = _matches_tumour_whitelist(chunk["Cancer_Type"], allowed)
+                mask = _matches_tumour_filter(chunk["Cancer_Type"], allowed)
                 chunk = chunk.loc[mask]
                 if chunk.empty:
                     continue
@@ -558,7 +558,7 @@ def check_reference_genome_uv_bed(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
     max_mismatch_examples: int = 5,
 ) -> RefCheckResult:
     """
@@ -578,7 +578,7 @@ def check_reference_genome_uv_bed(
         seed=seed,
         k=n_rows_to_test,
         chunksize=chunksize,
-        tumour_whitelist=tumour_whitelist,
+        tumour_filter=tumour_filter,
     )
 
     fasta = pysam.FastaFile(str(reference_fasta))
@@ -655,7 +655,7 @@ def check_reference_genome_uv_bed_multi(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
     max_mismatch_examples: int = 5,
 ) -> RefCheckResult:
     paths = [Path(p) for p in mutations_paths]
@@ -672,7 +672,7 @@ def check_reference_genome_uv_bed_multi(
         seed=seed,
         k=n_rows_to_test,
         chunksize=chunksize,
-        tumour_whitelist=tumour_whitelist,
+        tumour_filter=tumour_filter,
     )
 
     fasta = pysam.FastaFile(str(reference_fasta))
@@ -752,7 +752,7 @@ def compute_stats_tcga_maf(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> MutationStats:
     mutations_path = Path(mutations_path)
     if not mutations_path.exists():
@@ -1042,7 +1042,7 @@ def compute_stats_uv_bed(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> MutationStats:
     mutations_path = Path(mutations_path)
     if not mutations_path.exists():
@@ -1063,7 +1063,7 @@ def compute_stats_uv_bed(
     snv_count = 0
     indel_count = 0
 
-    allowed = _normalise_tumour_whitelist(tumour_whitelist)
+    allowed = _normalise_tumour_filter(tumour_filter)
 
     for chunk in pd.read_csv(
         mutations_path,
@@ -1075,7 +1075,7 @@ def compute_stats_uv_bed(
         low_memory=False,
     ):
         if allowed:
-            mask = _matches_tumour_whitelist(chunk["Cancer_Type"], allowed)
+            mask = _matches_tumour_filter(chunk["Cancer_Type"], allowed)
             chunk = chunk.loc[mask]
             if chunk.empty:
                 continue
@@ -1136,7 +1136,7 @@ def compute_stats_uv_bed(
             seed=seed,
             n_rows_to_test=n_rows_to_test,
             chunksize=chunksize,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
 
     # Fields not applicable to UV bed-like are set to neutral defaults
@@ -1166,7 +1166,7 @@ def compute_stats_uv_bed_multi(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> MutationStats:
     paths = [Path(p) for p in mutations_paths]
     for p in paths:
@@ -1174,7 +1174,7 @@ def compute_stats_uv_bed_multi(
             raise FileNotFoundError(f"Mutations file not found: {p}")
 
     colnames = ["Chromosome", "Start", "End", "Sample_ID", "Ref", "Alt", "Cancer_Type", "Trinuc_Context"]
-    allowed = _normalise_tumour_whitelist(tumour_whitelist)
+    allowed = _normalise_tumour_filter(tumour_filter)
 
     n_rows = 0
     missing_sample_barcode_rows = 0
@@ -1200,7 +1200,7 @@ def compute_stats_uv_bed_multi(
             low_memory=False,
         ):
             if allowed:
-                mask = _matches_tumour_whitelist(chunk["Cancer_Type"], allowed)
+                mask = _matches_tumour_filter(chunk["Cancer_Type"], allowed)
                 chunk = chunk.loc[mask]
                 if chunk.empty:
                     continue
@@ -1261,7 +1261,7 @@ def compute_stats_uv_bed_multi(
             seed=seed,
             n_rows_to_test=n_rows_to_test,
             chunksize=chunksize,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
 
     # Fields not applicable to UV bed-like are set to neutral defaults
@@ -1294,7 +1294,7 @@ def compute_mutation_stats_any(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> MutationStats:
     p = Path(mutations_path)
     fmt = detect_file_format(p)
@@ -1308,7 +1308,7 @@ def compute_mutation_stats_any(
                 seed=seed,
                 n_rows_to_test=n_rows_to_test,
                 chunksize=chunksize,
-                tumour_whitelist=tumour_whitelist,
+                tumour_filter=tumour_filter,
             )
         except ValueError as e:
             msg = str(e)
@@ -1320,7 +1320,7 @@ def compute_mutation_stats_any(
                     seed=seed,
                     n_rows_to_test=n_rows_to_test,
                     chunksize=chunksize,
-                    tumour_whitelist=tumour_whitelist,
+                    tumour_filter=tumour_filter,
                 )
             raise
 
@@ -1331,7 +1331,7 @@ def compute_mutation_stats_any(
             seed=seed,
             n_rows_to_test=n_rows_to_test,
             chunksize=chunksize,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
 
     # Unknown: attempt UV bed-like if extension is .bed, otherwise attempt TCGA, otherwise minimal
@@ -1342,7 +1342,7 @@ def compute_mutation_stats_any(
             seed=seed,
             n_rows_to_test=n_rows_to_test,
             chunksize=chunksize,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
 
     try:
@@ -1352,7 +1352,7 @@ def compute_mutation_stats_any(
             seed=seed,
             n_rows_to_test=n_rows_to_test,
             chunksize=chunksize,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
     except Exception:
         # minimal fallback
@@ -1456,7 +1456,7 @@ def main() -> None:
     )
     parser.add_argument("--chunksize", type=int, default=250_000, help="CSV chunk size for streaming reads.")
     parser.add_argument(
-        "--tumour-whitelist",
+        "--tumour-filter",
         type=str,
         default=None,
         help="Comma list of tumour codes to keep (e.g., 'SKCM,MELA'); case-insensitive.",
@@ -1495,9 +1495,9 @@ def main() -> None:
 
     ref_fa = args.reference_fasta
 
-    tumour_whitelist = None
-    if args.tumour_whitelist:
-        tumour_whitelist = [t.strip() for t in args.tumour_whitelist.split(",") if t.strip()]
+    tumour_filter = None
+    if args.tumour_filter:
+        tumour_filter = [t.strip() for t in args.tumour_filter.split(",") if t.strip()]
 
     results: List[Dict[str, Any]] = []
     for fp in resolved_files:
@@ -1507,7 +1507,7 @@ def main() -> None:
             seed=args.seed,
             n_rows_to_test=args.n_rows_to_test,
             chunksize=args.chunksize,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
         results.append(stats_as_dict(stats))
 
@@ -1531,7 +1531,7 @@ def compute_mutation_stats(
     seed: int = 123,
     n_rows_to_test: int = 50,
     chunksize: int = 250_000,
-    tumour_whitelist: Optional[Sequence[str]] = None,
+    tumour_filter: Optional[Sequence[str]] = None,
 ) -> MutationStats:
     """
     Compute stats for either:
@@ -1553,7 +1553,7 @@ def compute_mutation_stats(
                 seed=seed,
                 n_rows_to_test=n_rows_to_test,
                 chunksize=chunksize,
-                tumour_whitelist=tumour_whitelist,
+                tumour_filter=tumour_filter,
             )
         if all(f == "tcga_maf_tsv" for f in fmts):
             return compute_stats_tcga_maf_multi(
@@ -1573,7 +1573,7 @@ def compute_mutation_stats(
         seed=seed,
         n_rows_to_test=n_rows_to_test,
         chunksize=chunksize,
-        tumour_whitelist=tumour_whitelist,
+        tumour_filter=tumour_filter,
     )
 
 

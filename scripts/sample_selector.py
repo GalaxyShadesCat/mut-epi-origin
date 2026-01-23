@@ -31,6 +31,7 @@ Notes
 - If you pass a list of files, selection is global across all files
   (deterministic shuffle over (file, sample) pairs).
 - Larger k contains smaller k when the seed is fixed.
+- Tumour labels are normalized to the base name before any "-" suffix.
 """
 
 from __future__ import annotations
@@ -48,32 +49,32 @@ from scripts.contigs import canonicalise_contig
 COLNAMES = ["Chromosome", "Start", "End", "Sample_ID", "Ref", "Alt", "Tumour", "Context"]
 
 
-def _normalise_tumour_whitelist(tumour_whitelist: Optional[Sequence[str]]) -> Set[str]:
-    if not tumour_whitelist:
+def _normalise_tumour_value(value: str) -> str:
+    s = str(value).strip()
+    if not s:
+        return ""
+    return s.split("-", 1)[0].strip()
+
+
+def _normalise_tumour_filter(tumour_filter: Optional[Sequence[str]]) -> Set[str]:
+    if not tumour_filter:
         return set()
-    return {str(x).strip().upper() for x in tumour_whitelist if str(x).strip()}
+    return {
+        _normalise_tumour_value(x).upper()
+        for x in tumour_filter
+        if _normalise_tumour_value(x)
+    }
 
 
 def _apply_tumour_filter(
-        df: pd.DataFrame, tumour_whitelist: Optional[Sequence[str]]
+        df: pd.DataFrame, tumour_filter: Optional[Sequence[str]]
 ) -> pd.DataFrame:
-    allowed = _normalise_tumour_whitelist(tumour_whitelist)
+    allowed = _normalise_tumour_filter(tumour_filter)
     if not allowed or df.empty:
         return df
 
-    t = df["Tumour"].fillna("").astype(str).str.strip()
-    t_up = t.str.upper()
-
-    # Keep exact matches (e.g., "SKCM") or prefix matches like "SKCM-US", "MELA-AU"
-    exact = t_up.isin(allowed)
-
-    # Prefix match: startswith(f"{code}-") for any code in allowed
-    # Do it vectorised without a regex to avoid regex group warnings
-    prefix = False
-    for code in allowed:
-        prefix = prefix | t_up.str.startswith(code + "-")
-
-    return df.loc[exact | prefix]
+    t_up = df["Tumour"].fillna("").astype(str).str.strip().str.upper()
+    return df.loc[t_up.isin(allowed)]
 
 
 # -----------------------------
@@ -285,7 +286,7 @@ def extract_mutations_for_samples(
         chunksize: int = 250_000,
         *,
         sample_id_col_override: Optional[int] = None,
-        tumour_whitelist: Optional[Sequence[str]] = None,
+        tumour_filter: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     bed_path = Path(bed_path)
     want: Set[str] = set(sample_ids)
@@ -326,8 +327,11 @@ def extract_mutations_for_samples(
         # 4) Sample_ID: strip (already done) but keep explicit
         chunk["Sample_ID"] = chunk["Sample_ID"].str.strip()
 
+        # 5) Tumour: collapse to base label (before "-")
+        chunk["Tumour"] = chunk["Tumour"].map(_normalise_tumour_value)
+
         # Apply tumour filter after standardisation
-        chunk = _apply_tumour_filter(chunk, tumour_whitelist)
+        chunk = _apply_tumour_filter(chunk, tumour_filter)
 
         # Filter by sample set
         mask = chunk["Sample_ID"].isin(want)
@@ -347,7 +351,7 @@ def count_mutations_per_sample(
         chunksize: int = 250_000,
         *,
         sample_id_col_override: Optional[int] = None,
-        tumour_whitelist: Optional[Sequence[str]] = None,
+        tumour_filter: Optional[Sequence[str]] = None,
 ) -> Dict[str, int]:
     """
     Return per-sample mutation counts after standardisation and optional tumour filtering.
@@ -375,8 +379,9 @@ def count_mutations_per_sample(
         chunk["Start"] = chunk["Start"].str.replace(r"\.0$", "", regex=True)
         chunk["End"] = chunk["End"].str.replace(r"\.0$", "", regex=True)
         chunk["Sample_ID"] = chunk["Sample_ID"].str.strip()
+        chunk["Tumour"] = chunk["Tumour"].map(_normalise_tumour_value)
 
-        chunk = _apply_tumour_filter(chunk, tumour_whitelist)
+        chunk = _apply_tumour_filter(chunk, tumour_filter)
         chunk = chunk.loc[chunk["Sample_ID"] != ""]
         if chunk.empty:
             continue
@@ -392,7 +397,7 @@ def count_mutations_per_sample_multi(
         chunksize: int = 250_000,
         *,
         sample_id_col_overrides: Optional[Dict[str, int]] = None,
-        tumour_whitelist: Optional[Sequence[str]] = None,
+        tumour_filter: Optional[Sequence[str]] = None,
 ) -> Dict[str, int]:
     """
     Return per-(file, sample) mutation counts keyed by "<stem>::<sample_id>".
@@ -411,7 +416,7 @@ def count_mutations_per_sample_multi(
             p,
             chunksize=chunksize,
             sample_id_col_override=override,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
         stem = p.stem
         for sid, n in per_file.items():
@@ -430,7 +435,7 @@ def compile_k_samples_multi(
         chunksize: int = 250_000,
         *,
         sample_id_col_overrides: Optional[Dict[str, int]] = None,
-        tumour_whitelist: Optional[Sequence[str]] = None,
+        tumour_filter: Optional[Sequence[str]] = None,
 ) -> Tuple[List[str], pd.DataFrame]:
     """
     Returns (selected_sample_ids, mutations_df) for multiple mutation files.
@@ -509,7 +514,7 @@ def compile_k_samples_multi(
             chosen_by_file.get(p, []),
             chunksize=chunksize,
             sample_id_col_override=override,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
         if not sub.empty:
             kept_dfs.append(sub)
@@ -529,7 +534,7 @@ def compile_k_samples(
         *,
         sample_id_col_override: Optional[int] = None,
         sample_id_col_overrides: Optional[Dict[str, int]] = None,
-        tumour_whitelist: Optional[Sequence[str]] = None,
+        tumour_filter: Optional[Sequence[str]] = None,
 ) -> Tuple[List[str], pd.DataFrame]:
     """
     Returns (selected_sample_ids, mutations_df).
@@ -548,7 +553,7 @@ def compile_k_samples(
             seed=seed,
             chunksize=chunksize,
             sample_id_col_overrides=sample_id_col_overrides,
-            tumour_whitelist=tumour_whitelist,
+            tumour_filter=tumour_filter,
         )
 
     # Single file path
@@ -565,6 +570,6 @@ def compile_k_samples(
         chosen,
         chunksize=chunksize,
         sample_id_col_override=sample_id_col_override,
-        tumour_whitelist=tumour_whitelist,
+        tumour_filter=tumour_filter,
     )
     return chosen, muts

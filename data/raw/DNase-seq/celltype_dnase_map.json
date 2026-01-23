@@ -1,6 +1,6 @@
 [
   {
-    "key": "myelprog",
+    "key": "myel_prog",
     "name": "common myeloid progenitor (CD34+)",
     "aliases": [
       "myeloid progenitor",
@@ -49,7 +49,7 @@
     ]
   },
   {
-    "key": "esoepi",
+    "key": "eso_epi",
     "name": "epithelial cell of oesophagus",
     "aliases": [
       "oesophageal epithelial cell",
@@ -62,7 +62,7 @@
     ]
   },
   {
-    "key": "neurostem",
+    "key": "neuro_stem",
     "name": "neuronal stem cell",
     "aliases": [
       "neuronal stem cell",

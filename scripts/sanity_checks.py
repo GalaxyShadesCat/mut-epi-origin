@@ -95,7 +95,7 @@ class SanityConfig:
     k_samples: int = 1
     seed: int = 123
     chunksize: int = 250_000
-    tumour_whitelist: Optional[Sequence[str]] = None
+    tumour_filter: Optional[Sequence[str]] = None
 
     # binning quick checks
     bin_size: int = 50_000
@@ -293,7 +293,7 @@ def check_sample_selection_and_df(cfg: SanityConfig) -> pd.DataFrame:
         k=cfg.k_samples,
         seed=cfg.seed,
         chunksize=cfg.chunksize,
-        tumour_whitelist=cfg.tumour_whitelist,
+        tumour_filter=cfg.tumour_filter,
     )
 
     _expect(
