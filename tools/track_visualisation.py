@@ -469,7 +469,7 @@ def save_named_config(
 
 
 def main() -> None:
-    st.set_page_config(page_title="track visualisation", layout="wide")
+    st.set_page_config(page_title="Track visualisation", layout="wide")
     st.title("Track visualisation")
     st.caption("Interactive view of mutation tracks across strategies.")
     init_state()
