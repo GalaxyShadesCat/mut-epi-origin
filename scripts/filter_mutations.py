@@ -3,6 +3,7 @@ filter_mutations.py
 
 Filter one or more mutation BEDs to keep only tumour types supported by the DNase map.
 Multiple inputs are concatenated into a single output file.
+Samples with fewer than a minimum number of mutations are excluded.
 
 This script expects known, hardcoded input formats:
 - UV_mutations.bed:
@@ -12,6 +13,9 @@ This script expects known, hardcoded input formats:
 
 Input format (tab-separated, no header):
 Chrom  Start  End  Donor_ID  Ref  Alt  Project  Sample_ID
+
+Output format (tab-separated, no header):
+Chrom  Start  End  Sample_ID  Ref  Alt  Cancer_Type
 """
 
 from __future__ import annotations
@@ -93,6 +97,23 @@ def _resolve_format(path: Path) -> Tuple[List[str], int, int]:
     return columns, project_idx, sample_idx
 
 
+def _normalize_row(parts: List[str], columns: List[str]) -> List[str]:
+    col_map = {name: idx for idx, name in enumerate(columns)}
+    if "Cancer_Type" in col_map:
+        cancer_idx = col_map["Cancer_Type"]
+    else:
+        cancer_idx = col_map["Project"]
+    return [
+        parts[col_map["Chromosome"]],
+        parts[col_map["Start"]],
+        parts[col_map["End"]],
+        parts[col_map["Sample_ID"]],
+        parts[col_map["Ref"]],
+        parts[col_map["Alt"]],
+        parts[cancer_idx],
+    ]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument(
@@ -114,6 +135,12 @@ def main() -> None:
         type=Path,
         help="Optional DNase map JSON; default resolves from project root.",
     )
+    ap.add_argument(
+        "--min-mutations",
+        type=int,
+        default=100,
+        help="Exclude samples with fewer than this many mutations (default: 100).",
+    )
     args = ap.parse_args()
 
     in_paths: List[Path] = list(args.in_bed)
@@ -133,15 +160,46 @@ def main() -> None:
     if not allowed:
         raise ValueError("No tumour types found in DNase map.")
 
+    if args.min_mutations < 1:
+        raise ValueError("--min-mutations must be >= 1")
+
     n_in = 0
     n_out = 0
     seen_samples_global: Set[str] = set()
+    sample_counts: Dict[str, int] = {}
+
+    for in_path in in_paths:
+        columns, project_idx, sample_idx = _resolve_format(in_path)
+        expected_cols = len(columns)
+        seen_samples_file: Set[str] = set()
+        with in_path.open("r", encoding="utf-8", errors="replace") as fin:
+            for line_no, line in enumerate(fin, start=1):
+                if not line.strip():
+                    continue
+                parts = line.rstrip("\n").split("\t")
+                if len(parts) != expected_cols:
+                    raise ValueError(
+                        f"{in_path} line {line_no}: expected {expected_cols} columns "
+                        f"({', '.join(columns)}), got {len(parts)}"
+                    )
+                project = parts[project_idx]
+                if not keep_line(project, allowed=allowed):
+                    continue
+                sample_id = parts[sample_idx].strip()
+                if sample_id not in seen_samples_file:
+                    if sample_id in seen_samples_global:
+                        raise ValueError(
+                            f"Sample_ID '{sample_id}' appears in multiple files "
+                            f"(duplicate found in {in_path} line {line_no})"
+                        )
+                    seen_samples_file.add(sample_id)
+                    seen_samples_global.add(sample_id)
+                sample_counts[sample_id] = sample_counts.get(sample_id, 0) + 1
 
     with out_path.open("w", encoding="utf-8") as fout:
         for in_path in in_paths:
             columns, project_idx, sample_idx = _resolve_format(in_path)
             expected_cols = len(columns)
-            seen_samples_file: Set[str] = set()
             with in_path.open("r", encoding="utf-8", errors="replace") as fin:
                 for line_no, line in enumerate(fin, start=1):
                     if not line.strip():
@@ -157,15 +215,9 @@ def main() -> None:
                     project = parts[project_idx]
                     if keep_line(project, allowed=allowed):
                         sample_id = parts[sample_idx].strip()
-                        if sample_id not in seen_samples_file:
-                            if sample_id in seen_samples_global:
-                                raise ValueError(
-                                    f"Sample_ID '{sample_id}' appears in multiple files "
-                                    f"(duplicate found in {in_path} line {line_no})"
-                                )
-                            seen_samples_file.add(sample_id)
-                            seen_samples_global.add(sample_id)
-                        fout.write(line)
+                        if sample_counts.get(sample_id, 0) < args.min_mutations:
+                            continue
+                        fout.write("\t".join(_normalize_row(parts, columns)) + "\n")
                         n_out += 1
 
     print(f"Input lines:   {n_in:,}")

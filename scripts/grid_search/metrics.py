@@ -28,6 +28,15 @@ def pearsonr_nan(x: np.ndarray, y: np.ndarray) -> float:
     return float((xx * yy).sum() / denom)
 
 
+def spearmanr_nan(x: np.ndarray, y: np.ndarray) -> float:
+    mask = np.isfinite(x) & np.isfinite(y)
+    if mask.sum() < 3:
+        return float("nan")
+    xx = pd.Series(x[mask]).rank(method="average").to_numpy(dtype=float)
+    yy = pd.Series(y[mask]).rank(method="average").to_numpy(dtype=float)
+    return pearsonr_nan(xx, yy)
+
+
 def linear_residualise(y: np.ndarray, X: np.ndarray) -> np.ndarray:
     """
     Residualise y on X using the least squares with intercept.

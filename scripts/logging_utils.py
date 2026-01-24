@@ -4,7 +4,7 @@ import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Dict, Iterator, Optional
+from typing import Dict, Iterator, List, Optional, Tuple
 
 
 @dataclass
@@ -100,28 +100,21 @@ def summarise_run(
     *,
     n_bins_total: int,
     n_mutations_total: int,
-    best_celltype: Optional[str],
-    best_value: float,
-    margin: float,
-    rf_r2: float,
-    ridge_r2: float,
+    correct_celltypes: Optional[str],
+    metric_summaries: List[Tuple[str, Optional[str], float]],
     out_paths: Dict[str, str],
 ) -> None:
     log_section(logger, "Run summary")
     log_kv(logger, "bins_total", _fmt_int(n_bins_total))
     log_kv(logger, "mutations_total", _fmt_int(n_mutations_total))
 
-    if best_celltype:
-        log_kv(
-            logger,
-            "best (RF resid corr)",
-            f"{best_celltype}  r={best_value:.4f}  margin={margin:.4f}",
-        )
-    else:
-        log_kv(logger, "best (RF resid corr)", "NA")
-
-    log_kv(logger, "rf_r2_mean_weighted", f"{rf_r2:.4f}" if rf_r2 == rf_r2 else "NA")
-    log_kv(logger, "ridge_r2_mean_weighted", f"{ridge_r2:.4f}" if ridge_r2 == ridge_r2 else "NA")
+    log_kv(logger, "correct_celltypes", correct_celltypes or "NA")
+    for label, celltype, score in metric_summaries:
+        if celltype:
+            score_label = f"{score:.4f}" if score == score else "NA"
+            logger.info("  %s pred=%s  score=%s", label, celltype, score_label)
+        else:
+            logger.info("  %s NA", label)
 
     log_section(logger, "Outputs")
     for k, v in out_paths.items():

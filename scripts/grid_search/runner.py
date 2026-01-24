@@ -31,6 +31,7 @@ from scripts.grid_search.metrics import (
     pearsonr_nan,
     rf_feature_analysis,
     rf_residualise,
+    spearmanr_nan,
 )
 from scripts.grid_search.results import _append_results_row, _build_results_columns, compute_derived_fields
 from scripts.grid_search.sampling import (
@@ -155,18 +156,27 @@ def _build_cli_command(grid_params: Dict[str, Any], out_dir: Path) -> str:
         _join_csv(grid_params.get("exp_decay_adaptive_max_distance_bp_grid", [])),
     ]
 
-    args += ["--score-window-bins", str(grid_params.get("score_window_bins"))]
-    args += ["--score-corr-type", str(grid_params.get("score_corr_type"))]
-    args += ["--score-smoothing", str(grid_params.get("score_smoothing"))]
-    if grid_params.get("score_smooth_param") is not None:
-        args += ["--score-smooth-param", str(grid_params.get("score_smooth_param"))]
-    args += ["--score-transform", str(grid_params.get("score_transform"))]
-    args += ["--score-residuals", str(grid_params.get("score_residuals"))]
-    if grid_params.get("score_zscore"):
-        args.append("--score-zscore")
-    score_weights = grid_params.get("score_weights")
-    if score_weights:
-        args += ["--score-weights", _join_csv(score_weights)]
+    args += ["--pearson-score-window-bins", str(grid_params.get("pearson_score_window_bins"))]
+    args += ["--pearson-score-smoothing", str(grid_params.get("pearson_score_smoothing"))]
+    if grid_params.get("pearson_score_smooth_param") is not None:
+        args += ["--pearson-score-smooth-param", str(grid_params.get("pearson_score_smooth_param"))]
+    args += ["--pearson-score-transform", str(grid_params.get("pearson_score_transform"))]
+    if grid_params.get("pearson_score_zscore"):
+        args.append("--pearson-score-zscore")
+    pearson_score_weights = grid_params.get("pearson_score_weights")
+    if pearson_score_weights:
+        args += ["--pearson-score-weights", _join_csv(pearson_score_weights)]
+
+    args += ["--spearman-score-window-bins", str(grid_params.get("spearman_score_window_bins"))]
+    args += ["--spearman-score-smoothing", str(grid_params.get("spearman_score_smoothing"))]
+    if grid_params.get("spearman_score_smooth_param") is not None:
+        args += ["--spearman-score-smooth-param", str(grid_params.get("spearman_score_smooth_param"))]
+    args += ["--spearman-score-transform", str(grid_params.get("spearman_score_transform"))]
+    if grid_params.get("spearman_score_zscore"):
+        args.append("--spearman-score-zscore")
+    spearman_score_weights = grid_params.get("spearman_score_weights")
+    if spearman_score_weights:
+        args += ["--spearman-score-weights", _join_csv(spearman_score_weights)]
 
     if grid_params.get("include_trinuc"):
         args.append("--include-trinuc")
@@ -212,14 +222,18 @@ def run_one_config(
         # random seeds
         rf_seed: int,
         # local score settings
-        score_window_bins: int,
-        score_corr_type: str,
-        score_smoothing: str,
-        score_smooth_param: float | int | None,
-        score_transform: str,
-        score_residuals: str,
-        score_zscore: bool,
-        score_weights: Tuple[float, float],
+        pearson_score_window_bins: int,
+        pearson_score_smoothing: str,
+        pearson_score_smooth_param: float | int | None,
+        pearson_score_transform: str,
+        pearson_score_zscore: bool,
+        pearson_score_weights: Tuple[float, float],
+        spearman_score_window_bins: int,
+        spearman_score_smoothing: str,
+        spearman_score_smooth_param: float | int | None,
+        spearman_score_transform: str,
+        spearman_score_zscore: bool,
+        spearman_score_weights: Tuple[float, float],
         # standardisation
         standardise_tracks: bool = True,
         standardise_scope: str = "per_chrom",
@@ -270,31 +284,38 @@ def run_one_config(
 
     r_raw = pearsonr_nan(mut_track_corr, dnase_track_corr)
     r_lin = pearsonr_nan(mut_resid, dnase_resid_lin)
+    s_raw = spearmanr_nan(mut_track_corr, dnase_track_corr)
+    s_lin = spearmanr_nan(mut_resid, dnase_resid_lin)
 
     r_rf = float("nan")
     if X.shape[1]:
         dnase_resid_rf = rf_residualise(dnase_track_corr, X, seed=rf_seed)
         r_rf = pearsonr_nan(mut_track_corr, dnase_resid_rf)
 
-    if score_residuals == "linear":
-        score_mut = mut_resid
-        score_dnase = dnase_resid_lin
-    elif score_residuals == "none":
-        score_mut = mut_track_corr
-        score_dnase = dnase_track_corr
-    else:
-        raise ValueError(f"Unknown score_residuals: {score_residuals}")
+    score_mut = mut_resid if X.shape[1] else mut_track_corr
+    score_dnase = dnase_resid_lin if X.shape[1] else dnase_track_corr
 
-    score_res = compute_local_scores(
+    score_res_pearson = compute_local_scores(
         score_mut,
         score_dnase,
-        w=int(score_window_bins),
-        corr_type=str(score_corr_type),
-        smoothing=str(score_smoothing),
-        smooth_param=score_smooth_param,
-        transform=str(score_transform),
-        zscore=bool(score_zscore),
-        weights=score_weights,
+        w=int(pearson_score_window_bins),
+        corr_type="pearson",
+        smoothing=str(pearson_score_smoothing),
+        smooth_param=pearson_score_smooth_param,
+        transform=str(pearson_score_transform),
+        zscore=bool(pearson_score_zscore),
+        weights=pearson_score_weights,
+    )
+    score_res_spearman = compute_local_scores(
+        score_mut,
+        score_dnase,
+        w=int(spearman_score_window_bins),
+        corr_type="spearman",
+        smoothing=str(spearman_score_smoothing),
+        smooth_param=spearman_score_smooth_param,
+        transform=str(spearman_score_transform),
+        zscore=bool(spearman_score_zscore),
+        weights=spearman_score_weights,
     )
 
     mask_valid = np.isfinite(mut_track_corr) & np.isfinite(dnase_track_corr)
@@ -303,9 +324,17 @@ def run_one_config(
         "pearson_r_raw": float(r_raw),
         "pearson_r_linear_resid": float(r_lin),
         "pearson_r_rf_resid": float(r_rf),
+        "spearman_r_raw": float(s_raw),
+        "spearman_r_linear_resid": float(s_lin),
         "n_bins_valid_mut_and_dnase": int(mask_valid.sum()),
-        "local_score_global": float(score_res.global_score),
-        "local_score_negative_corr_fraction": float(score_res.negative_corr_fraction),
+        "pearson_local_score_global": float(score_res_pearson.global_score),
+        "pearson_local_score_negative_corr_fraction": float(
+            score_res_pearson.negative_corr_fraction
+        ),
+        "spearman_local_score_global": float(score_res_spearman.global_score),
+        "spearman_local_score_negative_corr_fraction": float(
+            score_res_spearman.negative_corr_fraction
+        ),
     }
 
     return summary, dnase_track
@@ -337,14 +366,18 @@ def run_grid_experiment(
         resume: bool = False,
         per_sample_count: Optional[int] = None,
         # local score settings
-        score_window_bins: int = 1,
-        score_corr_type: str = "pearson",
-        score_smoothing: str = "none",
-        score_smooth_param: float | int | None = None,
-        score_transform: str = "none",
-        score_residuals: str = "linear",
-        score_zscore: bool = False,
-        score_weights: Tuple[float, float] = (0.7, 0.3),
+        pearson_score_window_bins: int = 1,
+        pearson_score_smoothing: str = "none",
+        pearson_score_smooth_param: float | int | None = None,
+        pearson_score_transform: str = "none",
+        pearson_score_zscore: bool = False,
+        pearson_score_weights: Tuple[float, float] = (0.7, 0.3),
+        spearman_score_window_bins: int = 5,
+        spearman_score_smoothing: str = "none",
+        spearman_score_smooth_param: float | int | None = None,
+        spearman_score_transform: str = "none",
+        spearman_score_zscore: bool = False,
+        spearman_score_weights: Tuple[float, float] = (0.7, 0.3),
         # track params (derived from per-track grids)
         # per-track hyperparameter grids
         counts_raw_bins: Sequence[int] | int | str = (1_000_000,),
@@ -370,6 +403,8 @@ def run_grid_experiment(
         chunksize: int = 250_000,
         tumour_filter: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
+    def _nanmean_safe(values: np.ndarray) -> float:
+        return float(np.nanmean(values)) if np.isfinite(values).any() else float("nan")
     logger = setup_rich_logging(
         level=logging.DEBUG if verbose else logging.INFO,
         logger_name="mut_vs_dnase",
@@ -425,14 +460,34 @@ def run_grid_experiment(
         chroms = resume_params.get("chroms", chroms)
         standardise_tracks = resume_params.get("standardise_tracks", standardise_tracks)
         standardise_scope = resume_params.get("standardise_scope", standardise_scope)
-        score_window_bins = resume_params.get("score_window_bins", score_window_bins)
-        score_corr_type = resume_params.get("score_corr_type", score_corr_type)
-        score_smoothing = resume_params.get("score_smoothing", score_smoothing)
-        score_smooth_param = resume_params.get("score_smooth_param", score_smooth_param)
-        score_transform = resume_params.get("score_transform", score_transform)
-        score_residuals = resume_params.get("score_residuals", score_residuals)
-        score_zscore = resume_params.get("score_zscore", score_zscore)
-        score_weights = tuple(resume_params.get("score_weights", score_weights))
+        pearson_score_window_bins = resume_params.get(
+            "pearson_score_window_bins", pearson_score_window_bins
+        )
+        pearson_score_smoothing = resume_params.get("pearson_score_smoothing", pearson_score_smoothing)
+        pearson_score_smooth_param = resume_params.get(
+            "pearson_score_smooth_param", pearson_score_smooth_param
+        )
+        pearson_score_transform = resume_params.get("pearson_score_transform", pearson_score_transform)
+        pearson_score_zscore = resume_params.get("pearson_score_zscore", pearson_score_zscore)
+        pearson_score_weights = tuple(
+            resume_params.get("pearson_score_weights", pearson_score_weights)
+        )
+        spearman_score_window_bins = resume_params.get(
+            "spearman_score_window_bins", spearman_score_window_bins
+        )
+        spearman_score_smoothing = resume_params.get(
+            "spearman_score_smoothing", spearman_score_smoothing
+        )
+        spearman_score_smooth_param = resume_params.get(
+            "spearman_score_smooth_param", spearman_score_smooth_param
+        )
+        spearman_score_transform = resume_params.get(
+            "spearman_score_transform", spearman_score_transform
+        )
+        spearman_score_zscore = resume_params.get("spearman_score_zscore", spearman_score_zscore)
+        spearman_score_weights = tuple(
+            resume_params.get("spearman_score_weights", spearman_score_weights)
+        )
         counts_raw_bins = resume_params.get("counts_raw_bins", counts_raw_bins)
         counts_gauss_bins = resume_params.get("counts_gauss_bins", counts_gauss_bins)
         inv_dist_gauss_bins = resume_params.get("inv_dist_gauss_bins", inv_dist_gauss_bins)
@@ -570,12 +625,14 @@ def run_grid_experiment(
     for val in downsample_grid:
         if val is not None and val <= 0:
             raise ValueError("downsample values must be positive integers.")
-    if int(score_window_bins) < 1:
-        raise ValueError("score_window_bins must be >= 1.")
-    if len(score_weights) != 2:
-        raise ValueError("score_weights must be a length-2 tuple (shape, slope).")
-    if score_residuals not in {"none", "linear"}:
-        raise ValueError("score_residuals must be one of: none, linear.")
+    if int(pearson_score_window_bins) < 1:
+        raise ValueError("pearson_score_window_bins must be >= 1.")
+    if int(spearman_score_window_bins) < 1:
+        raise ValueError("spearman_score_window_bins must be >= 1.")
+    if len(pearson_score_weights) != 2:
+        raise ValueError("pearson_score_weights must be a length-2 tuple (shape, slope).")
+    if len(spearman_score_weights) != 2:
+        raise ValueError("spearman_score_weights must be a length-2 tuple (shape, slope).")
 
     default_counts_sigma_bins = 1.0
     default_inv_sigma_bins = 0.5
@@ -673,14 +730,28 @@ def run_grid_experiment(
             "chroms": None if chroms is None else list(chroms),
             "standardise_tracks": bool(standardise_tracks),
             "standardise_scope": str(standardise_scope),
-            "score_window_bins": int(score_window_bins),
-            "score_corr_type": str(score_corr_type),
-            "score_smoothing": str(score_smoothing),
-            "score_smooth_param": None if score_smooth_param is None else float(score_smooth_param),
-            "score_transform": str(score_transform),
-            "score_residuals": str(score_residuals),
-            "score_zscore": bool(score_zscore),
-            "score_weights": [float(score_weights[0]), float(score_weights[1])],
+            "pearson_score_window_bins": int(pearson_score_window_bins),
+            "pearson_score_smoothing": str(pearson_score_smoothing),
+            "pearson_score_smooth_param": None
+            if pearson_score_smooth_param is None
+            else float(pearson_score_smooth_param),
+            "pearson_score_transform": str(pearson_score_transform),
+            "pearson_score_zscore": bool(pearson_score_zscore),
+            "pearson_score_weights": [
+                float(pearson_score_weights[0]),
+                float(pearson_score_weights[1]),
+            ],
+            "spearman_score_window_bins": int(spearman_score_window_bins),
+            "spearman_score_smoothing": str(spearman_score_smoothing),
+            "spearman_score_smooth_param": None
+            if spearman_score_smooth_param is None
+            else float(spearman_score_smooth_param),
+            "spearman_score_transform": str(spearman_score_transform),
+            "spearman_score_zscore": bool(spearman_score_zscore),
+            "spearman_score_weights": [
+                float(spearman_score_weights[0]),
+                float(spearman_score_weights[1]),
+            ],
             "counts_raw_bins": list(counts_raw_bins),
             "counts_gauss_bins": list(counts_gauss_bins),
             "inv_dist_gauss_bins": list(inv_dist_gauss_bins),
@@ -1144,15 +1215,28 @@ def run_grid_experiment(
                                     "include_trinuc": bool(include_trinuc),
                                     "standardise_tracks": bool(standardise_tracks),
                                     "standardise_scope": str(standardise_scope),
-                                    "score_window_bins": int(score_window_bins),
-                                    "score_corr_type": str(score_corr_type),
-                                    "score_smoothing": str(score_smoothing),
-                                    "score_smooth_param": None if score_smooth_param is None else float(
-                                        score_smooth_param),
-                                    "score_transform": str(score_transform),
-                                    "score_residuals": str(score_residuals),
-                                    "score_zscore": bool(score_zscore),
-                                    "score_weights": [float(score_weights[0]), float(score_weights[1])],
+                                    "pearson_score_window_bins": int(pearson_score_window_bins),
+                                    "pearson_score_smoothing": str(pearson_score_smoothing),
+                                    "pearson_score_smooth_param": None
+                                    if pearson_score_smooth_param is None
+                                    else float(pearson_score_smooth_param),
+                                    "pearson_score_transform": str(pearson_score_transform),
+                                    "pearson_score_zscore": bool(pearson_score_zscore),
+                                    "pearson_score_weights": [
+                                        float(pearson_score_weights[0]),
+                                        float(pearson_score_weights[1]),
+                                    ],
+                                    "spearman_score_window_bins": int(spearman_score_window_bins),
+                                    "spearman_score_smoothing": str(spearman_score_smoothing),
+                                    "spearman_score_smooth_param": None
+                                    if spearman_score_smooth_param is None
+                                    else float(spearman_score_smooth_param),
+                                    "spearman_score_transform": str(spearman_score_transform),
+                                    "spearman_score_zscore": bool(spearman_score_zscore),
+                                    "spearman_score_weights": [
+                                        float(spearman_score_weights[0]),
+                                        float(spearman_score_weights[1]),
+                                    ],
                                     **prefixed_params,
                                     "counts_gauss_sigma_grid": list(map(float, counts_gauss_sigma_grid)),
                                     "inv_dist_gauss_sigma_grid": list(map(float, inv_dist_gauss_sigma_grid)),
@@ -1242,14 +1326,18 @@ def run_grid_experiment(
                                             timing_bigwig=timing_bigwig,
                                             include_trinuc=include_trinuc,
                                             rf_seed=rf_seed,
-                                            score_window_bins=score_window_bins,
-                                            score_corr_type=score_corr_type,
-                                            score_smoothing=score_smoothing,
-                                            score_smooth_param=score_smooth_param,
-                                            score_transform=score_transform,
-                                            score_residuals=score_residuals,
-                                            score_zscore=score_zscore,
-                                            score_weights=score_weights,
+                                            pearson_score_window_bins=pearson_score_window_bins,
+                                            pearson_score_smoothing=pearson_score_smoothing,
+                                            pearson_score_smooth_param=pearson_score_smooth_param,
+                                            pearson_score_transform=pearson_score_transform,
+                                            pearson_score_zscore=pearson_score_zscore,
+                                            pearson_score_weights=pearson_score_weights,
+                                            spearman_score_window_bins=spearman_score_window_bins,
+                                            spearman_score_smoothing=spearman_score_smoothing,
+                                            spearman_score_smooth_param=spearman_score_smooth_param,
+                                            spearman_score_transform=spearman_score_transform,
+                                            spearman_score_zscore=spearman_score_zscore,
+                                            spearman_score_weights=spearman_score_weights,
                                             standardise_tracks=standardise_tracks,
                                             standardise_scope=standardise_scope,
                                             shared=shared,
@@ -1259,10 +1347,22 @@ def run_grid_experiment(
                                         chrom_row[f"pearson_r_raw_{celltype}"] = summ["pearson_r_raw"]
                                         chrom_row[f"pearson_r_linear_resid_{celltype}"] = summ["pearson_r_linear_resid"]
                                         chrom_row[f"pearson_r_rf_resid_{celltype}"] = summ["pearson_r_rf_resid"]
-                                        chrom_row[f"local_score_global_{celltype}"] = summ["local_score_global"]
+                                        chrom_row[f"spearman_r_raw_{celltype}"] = summ["spearman_r_raw"]
+                                        chrom_row[f"spearman_r_linear_resid_{celltype}"] = summ[
+                                            "spearman_r_linear_resid"
+                                        ]
+                                        chrom_row[f"pearson_local_score_global_{celltype}"] = summ[
+                                            "pearson_local_score_global"
+                                        ]
                                         chrom_row[
-                                            f"local_score_negative_corr_fraction_{celltype}"
-                                        ] = summ["local_score_negative_corr_fraction"]
+                                            f"pearson_local_score_negative_corr_fraction_{celltype}"
+                                        ] = summ["pearson_local_score_negative_corr_fraction"]
+                                        chrom_row[f"spearman_local_score_global_{celltype}"] = summ[
+                                            "spearman_local_score_global"
+                                        ]
+                                        chrom_row[
+                                            f"spearman_local_score_negative_corr_fraction_{celltype}"
+                                        ] = summ["spearman_local_score_negative_corr_fraction"]
                                         chrom_row[f"n_bins_valid_mut_and_dnase_{celltype}"] = summ[
                                             "n_bins_valid_mut_and_dnase"
                                         ]
@@ -1377,41 +1477,96 @@ def run_grid_experiment(
                                 raw_vals: Dict[str, float] = {}
                                 lin_vals: Dict[str, float] = {}
                                 rf_vals: Dict[str, float] = {}
-                                score_vals: Dict[str, float] = {}
+                                spearman_raw_vals: Dict[str, float] = {}
+                                spearman_lin_vals: Dict[str, float] = {}
+                                pearson_score_vals: Dict[str, float] = {}
+                                spearman_score_vals: Dict[str, float] = {}
                                 for ct in celltypes:
                                     weights = chrom_df[f"n_bins_valid_mut_and_dnase_{ct}"].to_numpy(dtype=float)
                                     raw = chrom_df[f"pearson_r_raw_{ct}"].to_numpy(dtype=float)
                                     lin = chrom_df[f"pearson_r_linear_resid_{ct}"].to_numpy(dtype=float)
                                     rf = chrom_df[f"pearson_r_rf_resid_{ct}"].to_numpy(dtype=float)
-                                    score_global = chrom_df[f"local_score_global_{ct}"].to_numpy(dtype=float)
-                                    score_neg_frac = chrom_df[
-                                        f"local_score_negative_corr_fraction_{ct}"
+                                    s_raw = chrom_df[f"spearman_r_raw_{ct}"].to_numpy(dtype=float)
+                                    s_lin = chrom_df[f"spearman_r_linear_resid_{ct}"].to_numpy(dtype=float)
+                                    pearson_score_global = chrom_df[
+                                        f"pearson_local_score_global_{ct}"
+                                    ].to_numpy(dtype=float)
+                                    pearson_score_neg_frac = chrom_df[
+                                        f"pearson_local_score_negative_corr_fraction_{ct}"
+                                    ].to_numpy(dtype=float)
+                                    spearman_score_global = chrom_df[
+                                        f"spearman_local_score_global_{ct}"
+                                    ].to_numpy(dtype=float)
+                                    spearman_score_neg_frac = chrom_df[
+                                        f"spearman_local_score_negative_corr_fraction_{ct}"
                                     ].to_numpy(dtype=float)
 
                                     agg[f"pearson_r_raw_{ct}_mean_weighted"] = weighted_mean(raw, weights)
                                     agg[f"pearson_r_linear_resid_{ct}_mean_weighted"] = weighted_mean(lin, weights)
                                     agg[f"pearson_r_rf_resid_{ct}_mean_weighted"] = weighted_mean(rf, weights)
+                                    agg[f"spearman_r_raw_{ct}_mean_weighted"] = weighted_mean(s_raw, weights)
+                                    agg[f"spearman_r_linear_resid_{ct}_mean_weighted"] = weighted_mean(
+                                        s_lin, weights
+                                    )
                                     agg[f"pearson_r_raw_{ct}_mean_unweighted"] = float(np.nanmean(raw))
                                     agg[f"pearson_r_linear_resid_{ct}_mean_unweighted"] = float(np.nanmean(lin))
                                     agg[f"pearson_r_rf_resid_{ct}_mean_unweighted"] = float(np.nanmean(rf))
-                                    agg[f"local_score_global_{ct}_mean_weighted"] = weighted_mean(score_global, weights)
-                                    agg[f"local_score_global_{ct}_mean_unweighted"] = float(np.nanmean(score_global))
+                                    agg[f"spearman_r_raw_{ct}_mean_unweighted"] = float(np.nanmean(s_raw))
+                                    agg[f"spearman_r_linear_resid_{ct}_mean_unweighted"] = float(
+                                        np.nanmean(s_lin)
+                                    )
                                     agg[
-                                        f"local_score_negative_corr_fraction_{ct}_mean_weighted"
-                                    ] = weighted_mean(score_neg_frac, weights)
+                                        f"pearson_local_score_global_{ct}_mean_weighted"
+                                    ] = weighted_mean(pearson_score_global, weights)
                                     agg[
-                                        f"local_score_negative_corr_fraction_{ct}_mean_unweighted"
-                                    ] = float(np.nanmean(score_neg_frac))
+                                        f"pearson_local_score_global_{ct}_mean_unweighted"
+                                    ] = _nanmean_safe(pearson_score_global)
+                                    agg[
+                                        f"pearson_local_score_negative_corr_fraction_{ct}_mean_weighted"
+                                    ] = weighted_mean(pearson_score_neg_frac, weights)
+                                    agg[
+                                        f"pearson_local_score_negative_corr_fraction_{ct}_mean_unweighted"
+                                    ] = _nanmean_safe(pearson_score_neg_frac)
+                                    agg[
+                                        f"spearman_local_score_global_{ct}_mean_weighted"
+                                    ] = weighted_mean(spearman_score_global, weights)
+                                    agg[
+                                        f"spearman_local_score_global_{ct}_mean_unweighted"
+                                    ] = _nanmean_safe(spearman_score_global)
+                                    agg[
+                                        f"spearman_local_score_negative_corr_fraction_{ct}_mean_weighted"
+                                    ] = weighted_mean(spearman_score_neg_frac, weights)
+                                    agg[
+                                        f"spearman_local_score_negative_corr_fraction_{ct}_mean_unweighted"
+                                    ] = _nanmean_safe(spearman_score_neg_frac)
 
                                     raw_vals[ct] = agg[f"pearson_r_raw_{ct}_mean_weighted"]
                                     lin_vals[ct] = agg[f"pearson_r_linear_resid_{ct}_mean_weighted"]
                                     rf_vals[ct] = agg[f"pearson_r_rf_resid_{ct}_mean_weighted"]
-                                    score_vals[ct] = agg[f"local_score_global_{ct}_mean_weighted"]
+                                    spearman_raw_vals[ct] = agg[f"spearman_r_raw_{ct}_mean_weighted"]
+                                    spearman_lin_vals[ct] = agg[f"spearman_r_linear_resid_{ct}_mean_weighted"]
+                                    pearson_score_vals[ct] = agg[
+                                        f"pearson_local_score_global_{ct}_mean_weighted"
+                                    ]
+                                    spearman_score_vals[ct] = agg[
+                                        f"spearman_local_score_global_{ct}_mean_weighted"
+                                    ]
 
                                 best_raw, best_raw_val, best_raw_margin = best_and_margin(raw_vals)
                                 best_lin, best_lin_val, best_lin_margin = best_and_margin(lin_vals)
                                 best_rf, best_rf_val, best_rf_margin = best_and_margin(rf_vals)
-                                best_score, best_score_val, best_score_margin = best_and_margin(score_vals)
+                                best_s_raw, best_s_raw_val, best_s_raw_margin = best_and_margin(
+                                    spearman_raw_vals
+                                )
+                                best_s_lin, best_s_lin_val, best_s_lin_margin = best_and_margin(
+                                    spearman_lin_vals
+                                )
+                                best_p_score, best_p_score_val, best_p_score_margin = best_and_margin(
+                                    pearson_score_vals
+                                )
+                                best_s_score, best_s_score_val, best_s_score_margin = best_and_margin(
+                                    spearman_score_vals
+                                )
 
                                 agg["best_celltype_raw"] = _lower_celltype(best_raw)
                                 agg["best_celltype_raw_value"] = float(best_raw_val)
@@ -1422,9 +1577,18 @@ def run_grid_experiment(
                                 agg["best_celltype_rf_resid"] = _lower_celltype(best_rf)
                                 agg["best_celltype_rf_resid_value"] = float(best_rf_val)
                                 agg["best_minus_second_rf_resid"] = float(best_rf_margin)
-                                agg["best_celltype_local_score"] = _lower_celltype(best_score)
-                                agg["best_celltype_local_score_value"] = float(best_score_val)
-                                agg["best_minus_second_local_score"] = float(best_score_margin)
+                                agg["best_celltype_spearman_raw"] = _lower_celltype(best_s_raw)
+                                agg["best_celltype_spearman_raw_value"] = float(best_s_raw_val)
+                                agg["best_minus_second_spearman_raw"] = float(best_s_raw_margin)
+                                agg["best_celltype_spearman_linear_resid"] = _lower_celltype(best_s_lin)
+                                agg["best_celltype_spearman_linear_resid_value"] = float(best_s_lin_val)
+                                agg["best_minus_second_spearman_linear_resid"] = float(best_s_lin_margin)
+                                agg["best_celltype_pearson_local_score"] = _lower_celltype(best_p_score)
+                                agg["best_celltype_pearson_local_score_value"] = float(best_p_score_val)
+                                agg["best_minus_second_pearson_local_score"] = float(best_p_score_margin)
+                                agg["best_celltype_spearman_local_score"] = _lower_celltype(best_s_score)
+                                agg["best_celltype_spearman_local_score_value"] = float(best_s_score_val)
+                                agg["best_minus_second_spearman_local_score"] = float(best_s_score_margin)
 
                                 agg["rf_perm_importances_mean_json"] = json.dumps(
                                     aggregate_dict_column(chrom_df, "rf_perm_importances_json",
@@ -1457,7 +1621,7 @@ def run_grid_experiment(
                                     agg["rf_top_celltype_importance_perm"] = float("nan")
 
                                 agg.update(compute_derived_fields(agg))
-                                is_correct = agg.get("is_correct_local_score")
+                                is_correct = agg.get("is_correct_pearson_local_score")
                                 if is_correct is True:
                                     correct_counts["true"] += 1
                                 elif is_correct is False:
@@ -1481,11 +1645,64 @@ def run_grid_experiment(
                                     logger,
                                     n_bins_total=int(agg["n_bins_total"]),
                                     n_mutations_total=int(agg["n_mutations_total"]),
-                                    best_celltype=agg.get("best_celltype_rf_resid"),
-                                    best_value=float(agg.get("best_celltype_rf_resid_value", float("nan"))),
-                                    margin=float(agg.get("best_minus_second_rf_resid", float("nan"))),
-                                    rf_r2=float(agg.get("rf_r2_mean_weighted", float("nan"))),
-                                    ridge_r2=float(agg.get("ridge_r2_mean_weighted", float("nan"))),
+                                    correct_celltypes=str(agg.get("correct_celltypes") or ""),
+                                    metric_summaries=[
+                                        (
+                                            "Pearson r",
+                                            agg.get("best_celltype_raw"),
+                                            float(agg.get("best_celltype_raw_value", float("nan"))),
+                                        ),
+                                        (
+                                            "Pearson r (linear covariate)"
+                                            if covs
+                                            else "Pearson r (no covariates)",
+                                            agg.get("best_celltype_linear_resid"),
+                                            float(agg.get("best_celltype_linear_resid_value", float("nan"))),
+                                        ),
+                                        (
+                                            "Spearman r",
+                                            agg.get("best_celltype_spearman_raw"),
+                                            float(agg.get("best_celltype_spearman_raw_value", float("nan"))),
+                                        ),
+                                        (
+                                            "Spearman r (linear covariate)"
+                                            if covs
+                                            else "Spearman r (no covariates)",
+                                            agg.get("best_celltype_spearman_linear_resid"),
+                                            float(
+                                                agg.get(
+                                                    "best_celltype_spearman_linear_resid_value", float("nan")
+                                                )
+                                            ),
+                                        ),
+                                        (
+                                            "Local score (pearson, linear covariate)"
+                                            if covs
+                                            else "Local score (pearson, no covariates)",
+                                            agg.get("best_celltype_pearson_local_score"),
+                                            float(
+                                                agg.get(
+                                                    "best_celltype_pearson_local_score_value", float("nan")
+                                                )
+                                            ),
+                                        ),
+                                        (
+                                            "Local score (spearman, linear covariate)"
+                                            if covs
+                                            else "Local score (spearman, no covariates)",
+                                            agg.get("best_celltype_spearman_local_score"),
+                                            float(
+                                                agg.get(
+                                                    "best_celltype_spearman_local_score_value", float("nan")
+                                                )
+                                            ),
+                                        ),
+                                        (
+                                            "RF (non-linear covariate)" if covs else "RF (no covariates)",
+                                            agg.get("best_celltype_rf_resid"),
+                                            float(agg.get("best_celltype_rf_resid_value", float("nan"))),
+                                        ),
+                                    ],
                                     out_paths=out_paths,
                                 )
 
@@ -1517,7 +1734,7 @@ def run_grid_experiment(
             results = pd.concat(frames, ignore_index=True)
     if verbose and rows:
         logger.info(
-            "is_correct_local_score counts: true=%d false=%d none=%d",
+            "is_correct_pearson_local_score counts: true=%d false=%d none=%d",
             correct_counts["true"],
             correct_counts["false"],
             correct_counts["none"],

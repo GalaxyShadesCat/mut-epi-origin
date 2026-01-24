@@ -35,6 +35,7 @@ from scripts.covariates import (
     trinuc_frequency_per_bin,
     bigwig_mean_per_bin,
 )
+from scripts.grid_search.metrics import rf_residualise
 from scripts.scores import compute_local_scores
 
 TRACK_DESCRIPTIONS = {
@@ -64,6 +65,15 @@ def pearsonr_nan(x: np.ndarray, y: np.ndarray) -> float:
     if denom == 0:
         return float("nan")
     return float((xx * yy).sum() / denom)
+
+
+def spearmanr_nan(x: np.ndarray, y: np.ndarray) -> float:
+    mask = np.isfinite(x) & np.isfinite(y)
+    if mask.sum() < 3:
+        return float("nan")
+    xx = pd.Series(x[mask]).rank(method="average").to_numpy(dtype=float)
+    yy = pd.Series(y[mask]).rank(method="average").to_numpy(dtype=float)
+    return pearsonr_nan(xx, yy)
 
 
 def linear_residualise(y: np.ndarray, X: np.ndarray) -> np.ndarray:
@@ -263,20 +273,26 @@ def init_state() -> None:
         "adaptive_k": 5,
         "adaptive_min_bandwidth_bp": 50_000,
         "adaptive_max_distance_bp": 1_000_000,
-        "local_score_w": 1,
-        "score_corr_type": "pearson",
-        "score_smoothing": "none",
-        "score_smooth_param": 1.0,
-        "score_transform": "none",
-        "score_zscore": False,
-        "score_weight_shape": 0.7,
-        "score_weight_slope": 0.3,
-        "highlight_mode": "local_score",
+        "pearson_local_score_w": 1,
+        "pearson_score_smoothing": "none",
+        "pearson_score_smooth_param": 1.0,
+        "pearson_score_transform": "none",
+        "pearson_score_zscore": False,
+        "pearson_score_weight_shape": 0.7,
+        "pearson_score_weight_slope": 0.3,
+        "spearman_local_score_w": 5,
+        "spearman_score_smoothing": "none",
+        "spearman_score_smooth_param": 1.0,
+        "spearman_score_transform": "none",
+        "spearman_score_zscore": False,
+        "spearman_score_weight_shape": 0.7,
+        "spearman_score_weight_slope": 0.3,
+        "highlight_mode": "pearson_local_score",
     }
     config = load_config()
-    if "local_score_w" not in config and "anti_corr_w" in config:
+    if "pearson_local_score_w" not in config and "anti_corr_w" in config:
         config = dict(config)
-        config["local_score_w"] = config["anti_corr_w"]
+        config["pearson_local_score_w"] = config["anti_corr_w"]
     for key, value in defaults.items():
         st.session_state.setdefault(key, config.get(key, value))
 
@@ -351,9 +367,9 @@ def params_match(current: dict, saved: dict) -> bool:
 
 
 def apply_config_params(params: dict) -> None:
-    if "local_score_w" not in params and "anti_corr_w" in params:
+    if "pearson_local_score_w" not in params and "anti_corr_w" in params:
         params = dict(params)
-        params["local_score_w"] = params["anti_corr_w"]
+        params["pearson_local_score_w"] = params["anti_corr_w"]
     for key, value in params.items():
         st.session_state[key] = value
 
@@ -551,79 +567,147 @@ def main() -> None:
             help="Replication timing bigWig used when 'timing' covariate is selected.",
         )
         covariates = st.multiselect(
-            "Covariates for adjusted Pearson r",
+            "Covariates for linear covariate adjustment",
             options=["gc", "cpg", "timing", "trinuc"],
             key="covariates",
-            help="These are regressed out of both tracks before computing adjusted Pearson r.",
+            help="These are regressed out of both tracks before computing linear adjusted correlations.",
         )
 
         st.header("Track parameters")
 
         st.subheader("Correlation display")
-        highlight_mode = st.session_state.get("highlight_mode", "local_score")
-        if highlight_mode == "anti_score":
-            highlight_mode = "local_score"
+        highlight_mode = st.session_state.get("highlight_mode", "pearson_local_score")
+        if highlight_mode in {"anti_score", "adj_pearson_r", "local_score"}:
+            if highlight_mode == "adj_pearson_r":
+                highlight_mode = "pearson_r_linear"
+            else:
+                highlight_mode = "pearson_local_score"
             st.session_state["highlight_mode"] = highlight_mode
+        highlight_options = [
+            "pearson_r",
+            "pearson_r_linear",
+            "spearman_r",
+            "spearman_r_linear",
+            "pearson_local_score",
+            "spearman_local_score",
+            "rf_non_linear",
+        ]
         highlight_mode = st.selectbox(
             "Highlight best (most negative)",
-            options=["pearson_r", "adj_pearson_r", "local_score"],
+            options=highlight_options,
             key="highlight_mode",
+            format_func=lambda v: {
+                "pearson_r": "Pearson r",
+                "pearson_r_linear": "Pearson r (linear covariate)",
+                "spearman_r": "Spearman r",
+                "spearman_r_linear": "Spearman r (linear covariate)",
+                "pearson_local_score": "Pearson local score (linear covariate)",
+                "spearman_local_score": "Spearman local score (linear covariate)",
+                "rf_non_linear": "RF (non-linear covariate)",
+            }[v],
             help="Choose which correlation metric to use for highlighting the strongest negative cell type.",
         )
-        local_score_w = st.number_input(
-            "Local score window half-size (bins)",
+        st.markdown("Pearson local score settings")
+        pearson_local_score_w = st.number_input(
+            "Pearson local score window half-size (bins)",
             min_value=1,
             max_value=500,
             step=1,
-            key="local_score_w",
-            help="Bin half-window size used for local score computation.",
+            key="pearson_local_score_w",
+            help="Bin half-window size used for Pearson local score computation.",
         )
-        score_corr_type = st.selectbox(
-            "Local score correlation type",
-            options=["pearson", "spearman"],
-            key="score_corr_type",
-            help="Correlation method for local score (shape and slope windows).",
-        )
-        score_smoothing = st.selectbox(
-            "Local score smoothing",
+        pearson_score_smoothing = st.selectbox(
+            "Pearson local score smoothing",
             options=["none", "moving_average", "gaussian"],
-            key="score_smoothing",
-            help="Optional smoothing applied to both tracks before scoring.",
+            key="pearson_score_smoothing",
+            help="Optional smoothing applied to both tracks before Pearson local scoring.",
         )
-        smooth_min = 1.0 if score_smoothing == "moving_average" else 0.05
-        smooth_step = 1.0 if score_smoothing == "moving_average" else 0.05
-        score_smooth_param = st.number_input(
-            "Local score smoothing parameter",
-            min_value=smooth_min,
-            step=smooth_step,
-            key="score_smooth_param",
+        pearson_smooth_min = 1.0 if pearson_score_smoothing == "moving_average" else 0.05
+        pearson_smooth_step = 1.0 if pearson_score_smoothing == "moving_average" else 0.05
+        pearson_score_smooth_param = st.number_input(
+            "Pearson local score smoothing parameter",
+            min_value=pearson_smooth_min,
+            step=pearson_smooth_step,
+            key="pearson_score_smooth_param",
             help="Window size (moving_average) or sigma (gaussian); ignored when smoothing is none.",
         )
-        score_transform = st.selectbox(
-            "Local score transform",
+        pearson_score_transform = st.selectbox(
+            "Pearson local score transform",
             options=["none", "log1p"],
-            key="score_transform",
-            help="Optional transform applied to both tracks before smoothing (log1p requires non-negative values).",
+            key="pearson_score_transform",
+            help="Optional transform applied before Pearson local scoring (log1p requires non-negative values).",
         )
-        score_zscore = st.checkbox(
-            "Local score z-score",
-            key="score_zscore",
-            help="Z-score both tracks before smoothing and scoring.",
+        pearson_score_zscore = st.checkbox(
+            "Pearson local score z-score",
+            key="pearson_score_zscore",
+            help="Z-score both tracks before Pearson local scoring.",
         )
-        score_weight_shape = st.number_input(
-            "Local score weight: shape",
+        pearson_score_weight_shape = st.number_input(
+            "Pearson local score weight: shape",
             min_value=0.0,
             max_value=1.0,
             step=0.05,
-            key="score_weight_shape",
+            key="pearson_score_weight_shape",
             help="Weight on shape (raw correlation) component.",
         )
-        score_weight_slope = st.number_input(
-            "Local score weight: slope",
+        pearson_score_weight_slope = st.number_input(
+            "Pearson local score weight: slope",
             min_value=0.0,
             max_value=1.0,
             step=0.05,
-            key="score_weight_slope",
+            key="pearson_score_weight_slope",
+            help="Weight on slope (first-difference correlation) component.",
+        )
+
+        st.markdown("Spearman local score settings")
+        spearman_local_score_w = st.number_input(
+            "Spearman local score window half-size (bins)",
+            min_value=1,
+            max_value=500,
+            step=1,
+            key="spearman_local_score_w",
+            help="Bin half-window size used for Spearman local score computation.",
+        )
+        spearman_score_smoothing = st.selectbox(
+            "Spearman local score smoothing",
+            options=["none", "moving_average", "gaussian"],
+            key="spearman_score_smoothing",
+            help="Optional smoothing applied to both tracks before Spearman local scoring.",
+        )
+        spearman_smooth_min = 1.0 if spearman_score_smoothing == "moving_average" else 0.05
+        spearman_smooth_step = 1.0 if spearman_score_smoothing == "moving_average" else 0.05
+        spearman_score_smooth_param = st.number_input(
+            "Spearman local score smoothing parameter",
+            min_value=spearman_smooth_min,
+            step=spearman_smooth_step,
+            key="spearman_score_smooth_param",
+            help="Window size (moving_average) or sigma (gaussian); ignored when smoothing is none.",
+        )
+        spearman_score_transform = st.selectbox(
+            "Spearman local score transform",
+            options=["none", "log1p"],
+            key="spearman_score_transform",
+            help="Optional transform applied before Spearman local scoring (log1p requires non-negative values).",
+        )
+        spearman_score_zscore = st.checkbox(
+            "Spearman local score z-score",
+            key="spearman_score_zscore",
+            help="Z-score both tracks before Spearman local scoring.",
+        )
+        spearman_score_weight_shape = st.number_input(
+            "Spearman local score weight: shape",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+            key="spearman_score_weight_shape",
+            help="Weight on shape (raw correlation) component.",
+        )
+        spearman_score_weight_slope = st.number_input(
+            "Spearman local score weight: slope",
+            min_value=0.0,
+            max_value=1.0,
+            step=0.05,
+            key="spearman_score_weight_slope",
             help="Weight on slope (first-difference correlation) component.",
         )
 
@@ -951,14 +1035,20 @@ def main() -> None:
         "adaptive_k": int(adaptive_k),
         "adaptive_min_bandwidth_bp": int(adaptive_min_bandwidth_bp),
         "adaptive_max_distance_bp": int(adaptive_max_distance_bp),
-        "local_score_w": int(local_score_w),
-        "score_corr_type": score_corr_type,
-        "score_smoothing": score_smoothing,
-        "score_smooth_param": float(score_smooth_param),
-        "score_transform": score_transform,
-        "score_zscore": bool(score_zscore),
-        "score_weight_shape": float(score_weight_shape),
-        "score_weight_slope": float(score_weight_slope),
+        "pearson_local_score_w": int(pearson_local_score_w),
+        "pearson_score_smoothing": pearson_score_smoothing,
+        "pearson_score_smooth_param": float(pearson_score_smooth_param),
+        "pearson_score_transform": pearson_score_transform,
+        "pearson_score_zscore": bool(pearson_score_zscore),
+        "pearson_score_weight_shape": float(pearson_score_weight_shape),
+        "pearson_score_weight_slope": float(pearson_score_weight_slope),
+        "spearman_local_score_w": int(spearman_local_score_w),
+        "spearman_score_smoothing": spearman_score_smoothing,
+        "spearman_score_smooth_param": float(spearman_score_smooth_param),
+        "spearman_score_transform": spearman_score_transform,
+        "spearman_score_zscore": bool(spearman_score_zscore),
+        "spearman_score_weight_shape": float(spearman_score_weight_shape),
+        "spearman_score_weight_slope": float(spearman_score_weight_slope),
         "highlight_mode": highlight_mode,
     }
     save_config(current_params)
@@ -1270,23 +1360,61 @@ def main() -> None:
     def fmt_metric(value: float) -> str:
         return "n/a" if not np.isfinite(value) else f"{value:.3f}"
 
-    local_score_bins = int(max(1, int(local_score_w)))
-    if score_weight_shape + score_weight_slope <= 0:
-        st.error("Local score weights must sum to a positive value.")
+    pearson_local_score_bins = int(max(1, int(pearson_local_score_w)))
+    spearman_local_score_bins = int(max(1, int(spearman_local_score_w)))
+    if pearson_score_weight_shape + pearson_score_weight_slope <= 0:
+        st.error("Pearson local score weights must sum to a positive value.")
         return
-    score_weights = (float(score_weight_shape), float(score_weight_slope))
-    score_smooth_param_val: float | int | None
-    if score_smoothing == "none":
-        score_smooth_param_val = None
-    elif score_smoothing == "moving_average":
-        score_smooth_param_val = int(max(1, round(score_smooth_param)))
-    else:
-        score_smooth_param_val = float(score_smooth_param)
+    if spearman_score_weight_shape + spearman_score_weight_slope <= 0:
+        st.error("Spearman local score weights must sum to a positive value.")
+        return
+    pearson_score_weights = (float(pearson_score_weight_shape), float(pearson_score_weight_slope))
+    spearman_score_weights = (float(spearman_score_weight_shape), float(spearman_score_weight_slope))
+
+    def _smooth_param_value(method: str, raw_value: float) -> float | int | None:
+        if method == "none":
+            return None
+        if method == "moving_average":
+            return int(max(1, round(raw_value)))
+        return float(raw_value)
+
+    pearson_score_smooth_param_val = _smooth_param_value(
+        pearson_score_smoothing, pearson_score_smooth_param
+    )
+    spearman_score_smooth_param_val = _smooth_param_value(
+        spearman_score_smoothing, spearman_score_smooth_param
+    )
     resid_raw = linear_residualise(track_raw, X_raw) if covariates else None
     resid_gauss = linear_residualise(track_gauss, X_gauss) if covariates else None
     resid_inv = linear_residualise(track_inv, X_inv) if covariates else None
     resid_exp = linear_residualise(track_exp, X_exp) if covariates else None
     resid_adaptive = linear_residualise(track_adaptive, X_adaptive) if covariates else None
+
+    def _pearson_local_score(track_a: np.ndarray, track_b: np.ndarray) -> float:
+        return compute_local_scores(
+            track_a,
+            track_b,
+            w=pearson_local_score_bins,
+            corr_type="pearson",
+            smoothing=pearson_score_smoothing,
+            smooth_param=pearson_score_smooth_param_val,
+            transform=pearson_score_transform,
+            zscore=pearson_score_zscore,
+            weights=pearson_score_weights,
+        ).global_score
+
+    def _spearman_local_score(track_a: np.ndarray, track_b: np.ndarray) -> float:
+        return compute_local_scores(
+            track_a,
+            track_b,
+            w=spearman_local_score_bins,
+            corr_type="spearman",
+            smoothing=spearman_score_smoothing,
+            smooth_param=spearman_score_smooth_param_val,
+            transform=spearman_score_transform,
+            zscore=spearman_score_zscore,
+            weights=spearman_score_weights,
+        ).global_score
 
     st.subheader("DNase correlations")
     dnase_corr_rows = []
@@ -1296,6 +1424,11 @@ def main() -> None:
         corr_inv = pearsonr_nan(track_inv_win, dnase["inv"])
         corr_exp = pearsonr_nan(track_exp_win, dnase["exp"])
         corr_adaptive = pearsonr_nan(track_adaptive_win, dnase["adaptive"])
+        spearman_raw = spearmanr_nan(track_raw_win, dnase["raw"])
+        spearman_gauss = spearmanr_nan(track_gauss_win, dnase["gauss"])
+        spearman_inv = spearmanr_nan(track_inv_win, dnase["inv"])
+        spearman_exp = spearmanr_nan(track_exp_win, dnase["exp"])
+        spearman_adaptive = spearmanr_nan(track_adaptive_win, dnase["adaptive"])
         if covariates:
             resid_dnase_raw = linear_residualise(dnase["raw_full"], X_raw)
             resid_dnase_gauss = linear_residualise(dnase["gauss_full"], X_gauss)
@@ -1307,119 +1440,66 @@ def main() -> None:
             adj_inv = pearsonr_nan(resid_inv[mask_inv], resid_dnase_inv[mask_inv])
             adj_exp = pearsonr_nan(resid_exp[mask_exp], resid_dnase_exp[mask_exp])
             adj_adaptive = pearsonr_nan(resid_adaptive[mask_adaptive], resid_dnase_adaptive[mask_adaptive])
-            anti_raw = compute_local_scores(
-                resid_raw[mask_raw],
-                resid_dnase_raw[mask_raw],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_gauss = compute_local_scores(
-                resid_gauss[mask_gauss],
-                resid_dnase_gauss[mask_gauss],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_inv = compute_local_scores(
-                resid_inv[mask_inv],
-                resid_dnase_inv[mask_inv],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_exp = compute_local_scores(
-                resid_exp[mask_exp],
-                resid_dnase_exp[mask_exp],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_adaptive = compute_local_scores(
-                resid_adaptive[mask_adaptive],
-                resid_dnase_adaptive[mask_adaptive],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
+            spearman_adj_raw = spearmanr_nan(resid_raw[mask_raw], resid_dnase_raw[mask_raw])
+            spearman_adj_gauss = spearmanr_nan(resid_gauss[mask_gauss], resid_dnase_gauss[mask_gauss])
+            spearman_adj_inv = spearmanr_nan(resid_inv[mask_inv], resid_dnase_inv[mask_inv])
+            spearman_adj_exp = spearmanr_nan(resid_exp[mask_exp], resid_dnase_exp[mask_exp])
+            spearman_adj_adaptive = spearmanr_nan(
+                resid_adaptive[mask_adaptive], resid_dnase_adaptive[mask_adaptive]
+            )
+            rf_dnase_raw = rf_residualise(dnase["raw_full"], X_raw, seed=123)
+            rf_dnase_gauss = rf_residualise(dnase["gauss_full"], X_gauss, seed=123)
+            rf_dnase_inv = rf_residualise(dnase["inv_full"], X_inv, seed=123)
+            rf_dnase_exp = rf_residualise(dnase["exp_full"], X_exp, seed=123)
+            rf_dnase_adaptive = rf_residualise(dnase["adaptive_full"], X_adaptive, seed=123)
+            rf_raw = pearsonr_nan(track_raw_win, rf_dnase_raw[mask_raw])
+            rf_gauss = pearsonr_nan(track_gauss_win, rf_dnase_gauss[mask_gauss])
+            rf_inv = pearsonr_nan(track_inv_win, rf_dnase_inv[mask_inv])
+            rf_exp = pearsonr_nan(track_exp_win, rf_dnase_exp[mask_exp])
+            rf_adaptive = pearsonr_nan(track_adaptive_win, rf_dnase_adaptive[mask_adaptive])
+            pearson_local_raw = _pearson_local_score(resid_raw[mask_raw], resid_dnase_raw[mask_raw])
+            pearson_local_gauss = _pearson_local_score(
+                resid_gauss[mask_gauss], resid_dnase_gauss[mask_gauss]
+            )
+            pearson_local_inv = _pearson_local_score(
+                resid_inv[mask_inv], resid_dnase_inv[mask_inv]
+            )
+            pearson_local_exp = _pearson_local_score(
+                resid_exp[mask_exp], resid_dnase_exp[mask_exp]
+            )
+            pearson_local_adaptive = _pearson_local_score(
+                resid_adaptive[mask_adaptive], resid_dnase_adaptive[mask_adaptive]
+            )
+            spearman_local_raw = _spearman_local_score(resid_raw[mask_raw], resid_dnase_raw[mask_raw])
+            spearman_local_gauss = _spearman_local_score(
+                resid_gauss[mask_gauss], resid_dnase_gauss[mask_gauss]
+            )
+            spearman_local_inv = _spearman_local_score(
+                resid_inv[mask_inv], resid_dnase_inv[mask_inv]
+            )
+            spearman_local_exp = _spearman_local_score(
+                resid_exp[mask_exp], resid_dnase_exp[mask_exp]
+            )
+            spearman_local_adaptive = _spearman_local_score(
+                resid_adaptive[mask_adaptive], resid_dnase_adaptive[mask_adaptive]
+            )
         else:
             adj_raw = adj_gauss = adj_inv = float("nan")
             adj_exp = adj_adaptive = float("nan")
-            anti_raw = compute_local_scores(
-                track_raw_win,
-                dnase["raw"],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_gauss = compute_local_scores(
-                track_gauss_win,
-                dnase["gauss"],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_inv = compute_local_scores(
-                track_inv_win,
-                dnase["inv"],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_exp = compute_local_scores(
-                track_exp_win,
-                dnase["exp"],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
-            anti_adaptive = compute_local_scores(
-                track_adaptive_win,
-                dnase["adaptive"],
-                w=local_score_bins,
-                corr_type=score_corr_type,
-                smoothing=score_smoothing,
-                smooth_param=score_smooth_param_val,
-                transform=score_transform,
-                zscore=score_zscore,
-                weights=score_weights,
-            ).global_score
+            spearman_adj_raw = spearman_adj_gauss = spearman_adj_inv = float("nan")
+            spearman_adj_exp = spearman_adj_adaptive = float("nan")
+            rf_raw = rf_gauss = rf_inv = float("nan")
+            rf_exp = rf_adaptive = float("nan")
+            pearson_local_raw = _pearson_local_score(track_raw_win, dnase["raw"])
+            pearson_local_gauss = _pearson_local_score(track_gauss_win, dnase["gauss"])
+            pearson_local_inv = _pearson_local_score(track_inv_win, dnase["inv"])
+            pearson_local_exp = _pearson_local_score(track_exp_win, dnase["exp"])
+            pearson_local_adaptive = _pearson_local_score(track_adaptive_win, dnase["adaptive"])
+            spearman_local_raw = _spearman_local_score(track_raw_win, dnase["raw"])
+            spearman_local_gauss = _spearman_local_score(track_gauss_win, dnase["gauss"])
+            spearman_local_inv = _spearman_local_score(track_inv_win, dnase["inv"])
+            spearman_local_exp = _spearman_local_score(track_exp_win, dnase["exp"])
+            spearman_local_adaptive = _spearman_local_score(track_adaptive_win, dnase["adaptive"])
 
         dnase_corr_rows.append(
             {
@@ -1427,19 +1507,39 @@ def main() -> None:
                 "overlay": dnase["overlay"],
                 "counts_raw_r": corr_raw,
                 "counts_raw_adj_r": adj_raw,
-                "counts_raw_anti": anti_raw,
+                "counts_raw_spearman": spearman_raw,
+                "counts_raw_spearman_adj": spearman_adj_raw,
+                "counts_raw_pearson_local": pearson_local_raw,
+                "counts_raw_spearman_local": spearman_local_raw,
+                "counts_raw_rf": rf_raw,
                 "counts_gauss_r": corr_gauss,
                 "counts_gauss_adj_r": adj_gauss,
-                "counts_gauss_anti": anti_gauss,
+                "counts_gauss_spearman": spearman_gauss,
+                "counts_gauss_spearman_adj": spearman_adj_gauss,
+                "counts_gauss_pearson_local": pearson_local_gauss,
+                "counts_gauss_spearman_local": spearman_local_gauss,
+                "counts_gauss_rf": rf_gauss,
                 "inv_dist_gauss_r": corr_inv,
                 "inv_dist_gauss_adj_r": adj_inv,
-                "inv_dist_gauss_anti": anti_inv,
+                "inv_dist_gauss_spearman": spearman_inv,
+                "inv_dist_gauss_spearman_adj": spearman_adj_inv,
+                "inv_dist_gauss_pearson_local": pearson_local_inv,
+                "inv_dist_gauss_spearman_local": spearman_local_inv,
+                "inv_dist_gauss_rf": rf_inv,
                 "exp_decay_r": corr_exp,
                 "exp_decay_adj_r": adj_exp,
-                "exp_decay_anti": anti_exp,
+                "exp_decay_spearman": spearman_exp,
+                "exp_decay_spearman_adj": spearman_adj_exp,
+                "exp_decay_pearson_local": pearson_local_exp,
+                "exp_decay_spearman_local": spearman_local_exp,
+                "exp_decay_rf": rf_exp,
                 "exp_decay_adaptive_r": corr_adaptive,
                 "exp_decay_adaptive_adj_r": adj_adaptive,
-                "exp_decay_adaptive_anti": anti_adaptive,
+                "exp_decay_adaptive_spearman": spearman_adaptive,
+                "exp_decay_adaptive_spearman_adj": spearman_adj_adaptive,
+                "exp_decay_adaptive_pearson_local": pearson_local_adaptive,
+                "exp_decay_adaptive_spearman_local": spearman_local_adaptive,
+                "exp_decay_adaptive_rf": rf_adaptive,
             }
         )
 
@@ -1487,22 +1587,96 @@ def main() -> None:
             unsafe_allow_html=True,
         )
         strategy_specs = [
-            ("counts_raw", "counts_raw_r", "counts_raw_adj_r", "counts_raw_anti"),
-            ("counts_gauss", "counts_gauss_r", "counts_gauss_adj_r", "counts_gauss_anti"),
-            ("inv_dist_gauss", "inv_dist_gauss_r", "inv_dist_gauss_adj_r", "inv_dist_gauss_anti"),
-            ("exp_decay", "exp_decay_r", "exp_decay_adj_r", "exp_decay_anti"),
-            ("exp_decay_adaptive", "exp_decay_adaptive_r", "exp_decay_adaptive_adj_r", "exp_decay_adaptive_anti"),
+            (
+                "counts_raw",
+                "counts_raw_r",
+                "counts_raw_adj_r",
+                "counts_raw_spearman",
+                "counts_raw_spearman_adj",
+                "counts_raw_pearson_local",
+                "counts_raw_spearman_local",
+                "counts_raw_rf",
+            ),
+            (
+                "counts_gauss",
+                "counts_gauss_r",
+                "counts_gauss_adj_r",
+                "counts_gauss_spearman",
+                "counts_gauss_spearman_adj",
+                "counts_gauss_pearson_local",
+                "counts_gauss_spearman_local",
+                "counts_gauss_rf",
+            ),
+            (
+                "inv_dist_gauss",
+                "inv_dist_gauss_r",
+                "inv_dist_gauss_adj_r",
+                "inv_dist_gauss_spearman",
+                "inv_dist_gauss_spearman_adj",
+                "inv_dist_gauss_pearson_local",
+                "inv_dist_gauss_spearman_local",
+                "inv_dist_gauss_rf",
+            ),
+            (
+                "exp_decay",
+                "exp_decay_r",
+                "exp_decay_adj_r",
+                "exp_decay_spearman",
+                "exp_decay_spearman_adj",
+                "exp_decay_pearson_local",
+                "exp_decay_spearman_local",
+                "exp_decay_rf",
+            ),
+            (
+                "exp_decay_adaptive",
+                "exp_decay_adaptive_r",
+                "exp_decay_adaptive_adj_r",
+                "exp_decay_adaptive_spearman",
+                "exp_decay_adaptive_spearman_adj",
+                "exp_decay_adaptive_pearson_local",
+                "exp_decay_adaptive_spearman_local",
+                "exp_decay_adaptive_rf",
+            ),
         ]
 
         highlight_mode = st.session_state.get("highlight_mode", "local_score")
         if highlight_mode == "anti_score":
             highlight_mode = "local_score"
             st.session_state["highlight_mode"] = highlight_mode
-        for label, r_col, adj_col, anti_col in strategy_specs:
+        for (
+            label,
+            r_col,
+            adj_col,
+            s_col,
+            s_adj_col,
+            pearson_local_col,
+            spearman_local_col,
+            rf_col,
+        ) in strategy_specs:
             st.markdown(f"<div class='track-section'><strong>{label}</strong></div>", unsafe_allow_html=True)
-            sub = corr_df[["dnase_track", "overlay", r_col, adj_col, anti_col]].copy()
+            sub = corr_df[
+                [
+                    "dnase_track",
+                    "overlay",
+                    r_col,
+                    adj_col,
+                    s_col,
+                    s_adj_col,
+                    pearson_local_col,
+                    spearman_local_col,
+                    rf_col,
+                ]
+            ].copy()
             sub = sub.rename(
-                columns={r_col: "pearson_r", adj_col: "adj_pearson_r", anti_col: "local_score"}
+                columns={
+                    r_col: "pearson_r",
+                    adj_col: "pearson_r_linear",
+                    s_col: "spearman_r",
+                    s_adj_col: "spearman_r_linear",
+                    pearson_local_col: "pearson_local_score",
+                    spearman_local_col: "spearman_local_score",
+                    rf_col: "rf_non_linear",
+                }
             )
             best_idx = (
                 sub[highlight_mode].idxmin()
@@ -1521,8 +1695,12 @@ def main() -> None:
                             <div class="track-card{best_class}">
                                 <h4>{row['dnase_track']}</h4>
                                 <div class="metric"><span>Pearson r</span><span class="value">{fmt_metric(row['pearson_r'])}</span></div>
-                                <div class="metric"><span>Adj Pearson r</span><span class="value">{fmt_metric(row['adj_pearson_r'])}</span></div>
-                                <div class="metric"><span>Local score</span><span class="value">{fmt_metric(row['local_score'])}</span></div>
+                                <div class="metric"><span>Pearson r (linear covariate)</span><span class="value">{fmt_metric(row['pearson_r_linear'])}</span></div>
+                                <div class="metric"><span>Spearman r</span><span class="value">{fmt_metric(row['spearman_r'])}</span></div>
+                                <div class="metric"><span>Spearman r (linear covariate)</span><span class="value">{fmt_metric(row['spearman_r_linear'])}</span></div>
+                                <div class="metric"><span>Pearson local score (linear covariate)</span><span class="value">{fmt_metric(row['pearson_local_score'])}</span></div>
+                                <div class="metric"><span>Spearman local score (linear covariate)</span><span class="value">{fmt_metric(row['spearman_local_score'])}</span></div>
+                                <div class="metric"><span>RF (non-linear covariate)</span><span class="value">{fmt_metric(row['rf_non_linear'])}</span></div>
                             </div>
                             """,
                             unsafe_allow_html=True,

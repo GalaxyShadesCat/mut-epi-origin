@@ -166,47 +166,79 @@ def main() -> None:
         help="Comma list or range spec [start,end,step] for exp_decay_adaptive max_distance_bp",
     )
 
-    parser.add_argument("--score-window-bins", type=int, default=1, help="Half-window size (bins) for local score")
     parser.add_argument(
-        "--score-corr-type",
-        type=str,
-        default="pearson",
-        choices=["pearson", "spearman"],
-        help="Correlation method for local score windows",
+        "--pearson-score-window-bins",
+        type=int,
+        default=1,
+        help="Half-window size (bins) for Pearson local score",
     )
     parser.add_argument(
-        "--score-smoothing",
+        "--pearson-score-smoothing",
         type=str,
         default="none",
         choices=["none", "moving_average", "gaussian"],
-        help="Smoothing method for local score",
+        help="Smoothing method for Pearson local score",
     )
     parser.add_argument(
-        "--score-smooth-param",
+        "--pearson-score-smooth-param",
         type=float,
         default=None,
-        help="Smoothing parameter (window size or sigma) for local score",
+        help="Smoothing parameter (window size or sigma) for Pearson local score",
     )
     parser.add_argument(
-        "--score-transform",
+        "--pearson-score-transform",
         type=str,
         default="none",
         choices=["none", "log1p"],
-        help="Transform applied before local score",
+        help="Transform applied before Pearson local score",
     )
     parser.add_argument(
-        "--score-residuals",
-        type=str,
-        default="linear",
-        choices=["none", "linear"],
-        help="Residualization strategy for local score (uses covariates when available).",
+        "--pearson-score-zscore",
+        action="store_true",
+        help="Z-score tracks before Pearson local score",
     )
-    parser.add_argument("--score-zscore", action="store_true", help="Z-score tracks before local score")
     parser.add_argument(
-        "--score-weights",
+        "--pearson-score-weights",
         type=str,
         default="0.7,0.3",
-        help="Comma pair of weights for (shape, slope) local score components",
+        help="Comma pair of weights for (shape, slope) Pearson local score components",
+    )
+    parser.add_argument(
+        "--spearman-score-window-bins",
+        type=int,
+        default=5,
+        help="Half-window size (bins) for Spearman local score",
+    )
+    parser.add_argument(
+        "--spearman-score-smoothing",
+        type=str,
+        default="none",
+        choices=["none", "moving_average", "gaussian"],
+        help="Smoothing method for Spearman local score",
+    )
+    parser.add_argument(
+        "--spearman-score-smooth-param",
+        type=float,
+        default=None,
+        help="Smoothing parameter (window size or sigma) for Spearman local score",
+    )
+    parser.add_argument(
+        "--spearman-score-transform",
+        type=str,
+        default="none",
+        choices=["none", "log1p"],
+        help="Transform applied before Spearman local score",
+    )
+    parser.add_argument(
+        "--spearman-score-zscore",
+        action="store_true",
+        help="Z-score tracks before Spearman local score",
+    )
+    parser.add_argument(
+        "--spearman-score-weights",
+        type=str,
+        default="0.7,0.3",
+        help="Comma pair of weights for (shape, slope) Spearman local score components",
     )
 
     parser.add_argument(
@@ -334,10 +366,18 @@ def main() -> None:
     if args.chroms:
         chroms = [c.strip() for c in args.chroms.split(",") if c.strip()]
 
-    score_weights_tokens = [float(x) for x in args.score_weights.split(",") if x.strip()]
-    if len(score_weights_tokens) != 2:
-        raise ValueError("--score-weights must be a comma pair like '0.7,0.3'.")
-    score_weights = (score_weights_tokens[0], score_weights_tokens[1])
+    pearson_score_weights_tokens = [
+        float(x) for x in args.pearson_score_weights.split(",") if x.strip()
+    ]
+    if len(pearson_score_weights_tokens) != 2:
+        raise ValueError("--pearson-score-weights must be a comma pair like '0.7,0.3'.")
+    pearson_score_weights = (pearson_score_weights_tokens[0], pearson_score_weights_tokens[1])
+    spearman_score_weights_tokens = [
+        float(x) for x in args.spearman_score_weights.split(",") if x.strip()
+    ]
+    if len(spearman_score_weights_tokens) != 2:
+        raise ValueError("--spearman-score-weights must be a comma pair like '0.7,0.3'.")
+    spearman_score_weights = (spearman_score_weights_tokens[0], spearman_score_weights_tokens[1])
 
     tumour_filter = None
     if args.tumour_filter:
@@ -384,14 +424,18 @@ def main() -> None:
         verbose=bool(args.verbose or args.debug),
         resume=bool(args.resume),
         per_sample_count=args.per_sample_count,
-        score_window_bins=args.score_window_bins,
-        score_corr_type=args.score_corr_type,
-        score_smoothing=args.score_smoothing,
-        score_smooth_param=args.score_smooth_param,
-        score_transform=args.score_transform,
-        score_residuals=args.score_residuals,
-        score_zscore=bool(args.score_zscore),
-        score_weights=score_weights,
+        pearson_score_window_bins=args.pearson_score_window_bins,
+        pearson_score_smoothing=args.pearson_score_smoothing,
+        pearson_score_smooth_param=args.pearson_score_smooth_param,
+        pearson_score_transform=args.pearson_score_transform,
+        pearson_score_zscore=bool(args.pearson_score_zscore),
+        pearson_score_weights=pearson_score_weights,
+        spearman_score_window_bins=args.spearman_score_window_bins,
+        spearman_score_smoothing=args.spearman_score_smoothing,
+        spearman_score_smooth_param=args.spearman_score_smooth_param,
+        spearman_score_transform=args.spearman_score_transform,
+        spearman_score_zscore=bool(args.spearman_score_zscore),
+        spearman_score_weights=spearman_score_weights,
         out_dir=args.out_dir,
         save_per_bin=bool(args.save_per_bin),
         tumour_filter=tumour_filter,
