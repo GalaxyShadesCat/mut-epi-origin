@@ -594,9 +594,9 @@ def metric_margin_summary(df: pd.DataFrame, weight_basis: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-st.set_page_config(page_title="Results dashboard")
+st.set_page_config(page_title="Results Dashboard")
 _style()
-st.title("Mutation vs DNase results explorer")
+st.title("Results Dashboard")
 st.caption("Compare metrics, margins, and accuracy for each correct cell type.")
 
 config = _load_config()
