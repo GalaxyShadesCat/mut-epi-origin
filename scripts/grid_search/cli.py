@@ -15,10 +15,16 @@ from scripts.io_utils import ensure_dir
 from scripts.logging_utils import setup_rich_logging
 from scripts.grid_search.config import expand_grid_values
 from scripts.grid_search.io import _load_dnase_map_path
-from scripts.grid_search.runner import run_grid_experiment
+from scripts.grid_search.runner import resume_experiment, run_grid_experiment
 
 
 def main() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] == "resume-experiment":
+        if len(sys.argv) != 3:
+            print("Usage: resume-experiment <experiment path>", file=sys.stderr)
+            sys.exit(2)
+        resume_experiment(sys.argv[2])
+        return
     parser = argparse.ArgumentParser(description="Grid experiments: mutations vs DNase accessibility.")
     parser.add_argument(
         "--mut-path",
@@ -256,11 +262,6 @@ def main() -> None:
     )
     parser.add_argument("--save-per-bin", action="store_true", help="Save per-bin tables for inspection")
     parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume from an existing grid search output directory (uses grid_search_params.json).",
-    )
-    parser.add_argument(
         "--per-sample-count",
         type=int,
         default=None,
@@ -422,7 +423,6 @@ def main() -> None:
         standardise_tracks=not args.no_standardise_tracks,
         standardise_scope=args.standardise_scope,
         verbose=bool(args.verbose or args.debug),
-        resume=bool(args.resume),
         per_sample_count=args.per_sample_count,
         pearson_score_window_bins=args.pearson_score_window_bins,
         pearson_score_smoothing=args.pearson_score_smoothing,

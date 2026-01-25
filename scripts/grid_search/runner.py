@@ -50,7 +50,6 @@ from scripts.logging_utils import (
     summarise_run,
     timed,
 )
-from scripts.sample_selector import compile_k_samples
 from scripts.scores import compute_local_scores
 from scripts.stats_utils import weighted_mean, zscore_nan
 from scripts.targets import dnase_mean_per_bin
@@ -457,6 +456,38 @@ def run_grid_experiment(
             return str(path)
         return rel.as_posix()
 
+    def _load_sample_plan(path: Path) -> Optional[Dict[str, Any]]:
+        if not path.exists():
+            return None
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            logger.warning("Sample plan JSON is invalid; regenerating: %s", path)
+            return None
+        ordered_keys = payload.get("ordered_keys")
+        if not isinstance(ordered_keys, list):
+            logger.warning("Sample plan missing ordered_keys; regenerating: %s", path)
+            return None
+        paths = payload.get("paths")
+        if paths is None:
+            plan_paths = None
+        elif isinstance(paths, list):
+            plan_paths = [Path(p) for p in paths]
+        else:
+            logger.warning("Sample plan paths invalid; regenerating: %s", path)
+            return None
+        return {"paths": plan_paths, "ordered_keys": ordered_keys}
+
+    def _save_sample_plan(path: Path, plan: Dict[str, Any], allowed_keys: Optional[Set[str]]) -> None:
+        payload = {
+            "ordered_keys": plan["ordered_keys"],
+            "paths": None if plan["paths"] is None else [str(p) for p in plan["paths"]],
+            "seed": int(base_seed),
+            "chunksize": int(chunksize),
+            "allowed_keys": None if allowed_keys is None else sorted(allowed_keys),
+        }
+        save_json(payload, path)
+
     out_dir_path = Path(out_dir)
     if not out_dir_path.is_absolute():
         out_dir_path = project_root / out_dir_path
@@ -555,6 +586,8 @@ def run_grid_experiment(
             exp_decay_adaptive_max_distance_bp_grid,
         )
         downsample_counts = resume_params.get("downsample_counts", downsample_counts)
+        if isinstance(downsample_counts, (list, tuple)) and any(val is None for val in downsample_counts):
+            downsample_counts = "none"
         save_per_bin = resume_params.get("save_per_bin", save_per_bin)
         chunksize = resume_params.get("chunksize", chunksize)
         tumour_filter = resume_params.get("tumour_filter", tumour_filter)
@@ -734,6 +767,14 @@ def run_grid_experiment(
                 results_columns = list(existing_results_df.columns)
             if "run_id" in existing_results_df.columns:
                 completed_run_ids = set(existing_results_df["run_id"].astype(str))
+    completed_sample_counts: Dict[str, int] = {}
+    if completed_run_ids:
+        for run_id in completed_run_ids:
+            for part in str(run_id).split("__"):
+                if part.startswith("sample="):
+                    tag = part[len("sample="):]
+                    if tag:
+                        completed_sample_counts[tag] = completed_sample_counts.get(tag, 0) + 1
 
     # README.txt output disabled by request.
 
@@ -807,8 +848,13 @@ def run_grid_experiment(
             "per_sample_count": None if per_sample_count is None else int(per_sample_count),
         }
         save_json(grid_params, grid_params_path)
-        command_txt = out_dir / "command.txt"
-        command_txt.write_text(_build_cli_command(grid_params, out_dir), encoding="utf-8")
+        command_init_txt = out_dir / "command_init.txt"
+        command_init_txt.write_text(_build_cli_command(grid_params, out_dir), encoding="utf-8")
+        command_resume_txt = out_dir / "command_resume.txt"
+        command_resume_txt.write_text(
+            f"python -m scripts.grid_search.cli resume-experiment {_relpath(out_dir)}\n",
+            encoding="utf-8",
+        )
 
     fai = load_fai(fai_path)
     chrom_infos = list(iter_chroms(fai, chroms=chroms))
@@ -858,17 +904,31 @@ def run_grid_experiment(
                 f"No samples found with >= {max_downsample} mutations for downsampling."
             )
 
-    per_sample_plan: Optional[Dict[str, Any]] = None
-    per_sample_keys: Optional[List[str]] = None
-    if per_sample_count is not None:
-        per_sample_plan = _prepare_non_overlapping_plan(
+    sample_plan_path = out_dir / "sample_plan.json"
+    cached_plan: Optional[Dict[str, Any]] = None
+    if resume:
+        cached_plan = _load_sample_plan(sample_plan_path)
+
+    def _get_sample_plan() -> Dict[str, Any]:
+        nonlocal cached_plan
+        if cached_plan is not None:
+            return cached_plan
+        plan = _prepare_non_overlapping_plan(
             mut_path=mut_path,
-            k=1,
+            k=None,
             repeats=1,
             seed=int(base_seed),
             chunksize=chunksize,
             allowed_keys=eligible_keys,
         )
+        _save_sample_plan(sample_plan_path, plan, eligible_keys)
+        cached_plan = plan
+        return plan
+
+    per_sample_plan: Optional[Dict[str, Any]] = None
+    per_sample_keys: Optional[List[str]] = None
+    if per_sample_count is not None:
+        per_sample_plan = _get_sample_plan()
         per_sample_keys = list(per_sample_plan["ordered_keys"])
         if per_sample_count < 0:
             raise ValueError("per_sample_count must be >= 0.")
@@ -878,12 +938,14 @@ def run_grid_experiment(
             raise ValueError("per-sample mode found no samples to run.")
 
     if per_sample_keys is not None:
-        total_runs = (
+        per_sample_expected_runs = (
                 len(per_sample_keys)
                 * int(track_combo_count)
                 * len(downsample_grid)
                 * len(covariate_sets)
         )
+        expected_runs_per_sample = int(track_combo_count) * len(downsample_grid) * len(covariate_sets)
+        total_runs = per_sample_expected_runs
     else:
         total_runs = (
                 len(k_samples)
@@ -892,10 +954,15 @@ def run_grid_experiment(
                 * len(downsample_grid)
                 * len(covariate_sets)
         )
+        expected_runs_per_sample = None
 
     log_section(logger, "Session start")
     log_section(logger, "Inputs")
-    log_kv(logger, "mutations_bed", str(mut_path))
+    if isinstance(mut_path, (list, tuple)):
+        mut_path_display = ", ".join(_relpath(p) for p in mut_path)
+    else:
+        mut_path_display = _relpath(mut_path)
+    log_kv(logger, "mutations_bed", mut_path_display)
     log_kv(logger, "fasta", str(fasta_path))
     log_kv(logger, "fai", str(fai_path))
     log_kv(logger, "dnase_bigwigs", ", ".join(dnase_bigwigs.keys()) if dnase_bigwigs else "none")
@@ -914,6 +981,18 @@ def run_grid_experiment(
     def _iter_sample_runs() -> Iterable[tuple[Dict[str, Any], int, List[str], pd.DataFrame, Optional[int], Optional[int]]]:
         if per_sample_keys is not None:
             for sample_index, _ in enumerate(per_sample_keys):
+                sample_tag = _sanitize_tag(per_sample_keys[sample_index])
+                if (
+                    resume
+                    and expected_runs_per_sample
+                    and completed_sample_counts.get(sample_tag, 0) >= expected_runs_per_sample
+                ):
+                    logger.info(
+                        "Skipping completed per-sample idx=%d sample=%s",
+                        sample_index,
+                        sample_tag,
+                    )
+                    continue
                 with timed(logger, f"Sample selection (per-sample idx={sample_index})"):
                     chosen_samples, muts_df, slice_start, slice_end = _select_non_overlapping_samples(
                         per_sample_plan,
@@ -948,14 +1027,12 @@ def run_grid_experiment(
                 non_overlap_plan: Optional[Dict[str, Any]] = None
                 effective_repeats = 1 if (k is None and n_resamples > 1) else n_resamples
                 if eligible_keys is not None or (effective_repeats > 1 and k is not None):
-                    non_overlap_plan = _prepare_non_overlapping_plan(
-                        mut_path=mut_path,
-                        k=None if k is None else int(k),
-                        repeats=int(effective_repeats),
-                        seed=int(base_seed),
-                        chunksize=chunksize,
-                        allowed_keys=eligible_keys,
-                    )
+                    non_overlap_plan = _get_sample_plan()
+                    if k is not None and int(effective_repeats) * int(k) > len(non_overlap_plan["ordered_keys"]):
+                        raise ValueError(
+                            "Non-overlapping repeats require repeats * k <= total samples "
+                            f"({effective_repeats} * {k} > {len(non_overlap_plan['ordered_keys'])})."
+                        )
                 if k is None and n_resamples > 1:
                     logger.warning(
                         "k_samples includes 'all'; overriding n_resamples=%d to 1 for full-cohort runs.",
@@ -981,14 +1058,17 @@ def run_grid_experiment(
                         log_kv(logger, "sample_slice", f"{slice_start}:{slice_end}")
                     else:
                         seed_samples = base_seed + rep
+                        plan = _get_sample_plan()
                         with timed(logger, f"Sample selection (k={k}, rep={rep}, seed={seed_samples})"):
-                            chosen_samples, muts_df = compile_k_samples(
+                            chosen_samples, muts_df, slice_start, slice_end = _select_non_overlapping_samples(
+                                plan,
                                 mut_path,
-                                k=k,
-                                seed=seed_samples,
+                                rep=rep,
+                                k=int(k) if k is not None else None,
                                 chunksize=chunksize,
                                 tumour_filter=tumour_filter,
                             )
+                        log_kv(logger, "sample_slice", f"{slice_start}:{slice_end}")
                     log_kv(logger, "selected_samples", str(len(chosen_samples)))
                     log_kv(logger, "mutations_loaded", f"{len(muts_df):,}")
 
@@ -997,8 +1077,8 @@ def run_grid_experiment(
                         "repeat": int(rep),
                         "seed_samples": int(seed_samples),
                         "n_selected_samples": int(len(chosen_samples)),
-                        "sample_slice_start": None if non_overlap_plan is None else int(slice_start),
-                        "sample_slice_end": None if non_overlap_plan is None else int(slice_end),
+                        "sample_slice_start": int(slice_start) if slice_start is not None else None,
+                        "sample_slice_end": int(slice_end) if slice_end is not None else None,
                     }
                     yield sample_meta, seed_samples, chosen_samples, muts_df, slice_start, slice_end
     for sample_meta, seed_samples, chosen_samples, muts_df, slice_start, slice_end in _iter_sample_runs():
@@ -1772,3 +1852,82 @@ def run_grid_experiment(
             top_feat = max(rf_top_feature_counts.items(), key=lambda kv: (kv[1], kv[0]))
             logger.info("rf_top_feature_perm most frequent: %s (%d)", top_feat[0], top_feat[1])
     return results
+
+
+def resume_experiment(out_dir: str | Path) -> pd.DataFrame:
+    out_dir_path = Path(out_dir)
+    grid_params_path = out_dir_path / "grid_search_params.json"
+    if not grid_params_path.exists():
+        raise FileNotFoundError(f"grid_search_params.json not found: {grid_params_path}")
+    params = json.loads(grid_params_path.read_text(encoding="utf-8"))
+    mut_path = params.get("mut_path")
+    if mut_path is None:
+        raise ValueError("grid_search_params.json missing mut_path")
+    fai_path = params.get("fai_path")
+    fasta_path = params.get("fasta_path")
+    if fai_path is None or fasta_path is None:
+        raise ValueError("grid_search_params.json missing fai_path or fasta_path")
+    base_seed = params.get("base_seed")
+    if base_seed is None:
+        raise ValueError("grid_search_params.json missing base_seed")
+    track_strategies = params.get("track_strategies")
+    if track_strategies is None:
+        raise ValueError("grid_search_params.json missing track_strategies")
+    covariate_sets = params.get("covariate_sets")
+    if covariate_sets is None:
+        raise ValueError("grid_search_params.json missing covariate_sets")
+    downsample_counts = params.get("downsample_counts", ())
+    if isinstance(downsample_counts, (list, tuple)) and any(val is None for val in downsample_counts):
+        downsample_counts = "none"
+    return run_grid_experiment(
+        mut_path=mut_path,
+        fai_path=fai_path,
+        fasta_path=fasta_path,
+        dnase_map_path=params.get("dnase_map_path"),
+        dnase_bigwigs=params.get("dnase_bigwigs"),
+        timing_bigwig=params.get("timing_bigwig"),
+        k_samples=params.get("k_samples"),
+        n_resamples=params.get("n_resamples"),
+        base_seed=base_seed,
+        track_strategies=track_strategies,
+        covariate_sets=covariate_sets,
+        include_trinuc=params.get("include_trinuc", False),
+        chroms=params.get("chroms"),
+        standardise_tracks=params.get("standardise_tracks", True),
+        standardise_scope=params.get("standardise_scope", "per_chrom"),
+        pearson_score_window_bins=params.get("pearson_score_window_bins", 1),
+        pearson_score_smoothing=params.get("pearson_score_smoothing", "none"),
+        pearson_score_smooth_param=params.get("pearson_score_smooth_param"),
+        pearson_score_transform=params.get("pearson_score_transform", "none"),
+        pearson_score_zscore=params.get("pearson_score_zscore", False),
+        pearson_score_weights=tuple(params.get("pearson_score_weights", (0.7, 0.3))),
+        spearman_score_window_bins=params.get("spearman_score_window_bins", 1),
+        spearman_score_smoothing=params.get("spearman_score_smoothing", "none"),
+        spearman_score_smooth_param=params.get("spearman_score_smooth_param"),
+        spearman_score_transform=params.get("spearman_score_transform", "none"),
+        spearman_score_zscore=params.get("spearman_score_zscore", False),
+        spearman_score_weights=tuple(params.get("spearman_score_weights", (0.7, 0.3))),
+        counts_raw_bins=params.get("counts_raw_bins", ()),
+        counts_gauss_bins=params.get("counts_gauss_bins", ()),
+        inv_dist_gauss_bins=params.get("inv_dist_gauss_bins", ()),
+        exp_decay_bins=params.get("exp_decay_bins", ()),
+        exp_decay_adaptive_bins=params.get("exp_decay_adaptive_bins", ()),
+        counts_gauss_sigma_grid=params.get("counts_gauss_sigma_grid", ()),
+        counts_gauss_sigma_units=params.get("counts_gauss_sigma_units", "bins"),
+        inv_dist_gauss_sigma_grid=params.get("inv_dist_gauss_sigma_grid", ()),
+        inv_dist_gauss_max_distance_bp_grid=params.get("inv_dist_gauss_max_distance_bp_grid", ()),
+        inv_dist_gauss_pairs=params.get("inv_dist_gauss_pairs"),
+        inv_dist_gauss_sigma_units=params.get("inv_dist_gauss_sigma_units", "bins"),
+        exp_decay_decay_bp_grid=params.get("exp_decay_decay_bp_grid", ()),
+        exp_decay_max_distance_bp_grid=params.get("exp_decay_max_distance_bp_grid", ()),
+        exp_decay_adaptive_k_grid=params.get("exp_decay_adaptive_k_grid", ()),
+        exp_decay_adaptive_min_bandwidth_bp_grid=params.get("exp_decay_adaptive_min_bandwidth_bp_grid", ()),
+        exp_decay_adaptive_max_distance_bp_grid=params.get("exp_decay_adaptive_max_distance_bp_grid", ()),
+        downsample_counts=downsample_counts,
+        save_per_bin=params.get("save_per_bin", True),
+        chunksize=params.get("chunksize", 250_000),
+        tumour_filter=params.get("tumour_filter"),
+        per_sample_count=params.get("per_sample_count"),
+        out_dir=out_dir_path,
+        resume=True,
+    )
