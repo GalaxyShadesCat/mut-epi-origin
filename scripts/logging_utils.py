@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -109,13 +110,54 @@ def summarise_run(
     log_kv(logger, "mutations_total", _fmt_int(n_mutations_total))
 
     log_kv(logger, "correct_celltypes", correct_celltypes or "NA")
+    rows: List[Tuple[str, str, str]] = []
     for label, celltype, score in metric_summaries:
         if celltype:
             score_label = f"{score:.4f}" if score == score else "NA"
-            logger.info("  %s pred=%s  score=%s", label, celltype, score_label)
+            rows.append((label, celltype, score_label))
         else:
-            logger.info("  %s NA", label)
+            rows.append((label, "NA", "NA"))
+
+    if rows:
+        headers = ("Metric", "Pred", "Score")
+        widths = [
+            max(len(headers[0]), *(len(r[0]) for r in rows)),
+            max(len(headers[1]), *(len(r[1]) for r in rows)),
+            max(len(headers[2]), *(len(r[2]) for r in rows)),
+        ]
+        logger.info(
+            "  %-*s  %-*s  %-*s",
+            widths[0],
+            headers[0],
+            widths[1],
+            headers[1],
+            widths[2],
+            headers[2],
+        )
+        logger.info(
+            "  %-*s  %-*s  %-*s",
+            widths[0],
+            "-" * widths[0],
+            widths[1],
+            "-" * widths[1],
+            widths[2],
+            "-" * widths[2],
+        )
+        for metric, pred, score in rows:
+            logger.info(
+                "  %-*s  %-*s  %-*s",
+                widths[0],
+                metric,
+                widths[1],
+                pred,
+                widths[2],
+                score,
+            )
 
     log_section(logger, "Outputs")
-    for k, v in out_paths.items():
-        log_kv(logger, k, v)
+    for key, value in out_paths.items():
+        if value == "skipped":
+            logger.info("  %s skipped", key)
+            continue
+        filename = Path(value).name
+        logger.info("  %s saved", filename)

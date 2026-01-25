@@ -96,103 +96,133 @@ def _format_inv_dist_pairs(pairs: Optional[Sequence[Sequence[float | int]]]) -> 
 
 def _build_cli_command(grid_params: Dict[str, Any], out_dir: Path) -> str:
     project_root = Path(__file__).resolve().parents[2]
-    args: List[str] = ["python", "-m", "scripts.grid_search.cli"]
+
+    def _relpath(path_value: str | Path) -> str:
+        path = Path(path_value).resolve()
+        try:
+            rel = path.relative_to(project_root)
+        except ValueError:
+            return str(path)
+        return rel.as_posix()
+
+    def _quote(value: str) -> str:
+        return shlex.quote(value)
+
+    def _add_arg(items: List[Tuple[str, Optional[str]]], flag: str, value: Optional[str] = None) -> None:
+        items.append((flag, value))
+
+    args: List[Tuple[str, Optional[str]]] = []
 
     mut_path = grid_params.get("mut_path")
     if isinstance(mut_path, list):
         mut_path = _join_csv(mut_path)
-    args += ["--mut-path", str(mut_path)]
-    args += ["--fai-path", str(grid_params.get("fai_path"))]
-    args += ["--fasta-path", str(grid_params.get("fasta_path"))]
-    args += ["--dnase-map-json", json.dumps(grid_params.get("dnase_bigwigs", {}))]
+    _add_arg(args, "--mut-path", str(mut_path))
+    _add_arg(args, "--fai-path", str(grid_params.get("fai_path")))
+    _add_arg(args, "--fasta-path", str(grid_params.get("fasta_path")))
+    dnase_map_path = grid_params.get("dnase_map_path")
+    if dnase_map_path:
+        _add_arg(args, "--dnase-map-path", str(dnase_map_path))
+    else:
+        _add_arg(args, "--dnase-map-json", json.dumps(grid_params.get("dnase_bigwigs", {})))
 
     timing_bw = grid_params.get("timing_bigwig")
     if timing_bw:
-        args += ["--timing-bw", str(timing_bw)]
+        _add_arg(args, "--timing-bw", str(timing_bw))
 
     tumour_filter = grid_params.get("tumour_filter")
     if tumour_filter:
-        args += ["--tumour-filter", _join_csv(tumour_filter)]
+        _add_arg(args, "--tumour-filter", _join_csv(tumour_filter))
 
-    args += ["--out-dir", str(out_dir)]
-    args += ["--base-seed", str(grid_params.get("base_seed"))]
-    args += ["--n-resamples", str(grid_params.get("n_resamples"))]
-    args += ["--k-samples", _format_k_samples(grid_params.get("k_samples", []))]
+    _add_arg(args, "--out-dir", _relpath(out_dir))
+    _add_arg(args, "--base-seed", str(grid_params.get("base_seed")))
+    _add_arg(args, "--n-resamples", str(grid_params.get("n_resamples")))
+    _add_arg(args, "--k-samples", _format_k_samples(grid_params.get("k_samples", [])))
     per_sample_count = grid_params.get("per_sample_count")
     if per_sample_count is not None:
-        args += ["--per-sample-count", str(per_sample_count)]
-    args += ["--downsample", _format_downsample(grid_params.get("downsample_counts", []))]
-    args += ["--track-strategies", _join_csv(grid_params.get("track_strategies", []))]
-    args += ["--covariate-sets", _format_covariate_sets(grid_params.get("covariate_sets", []))]
+        _add_arg(args, "--per-sample-count", str(per_sample_count))
+    _add_arg(args, "--downsample", _format_downsample(grid_params.get("downsample_counts", [])))
+    _add_arg(args, "--track-strategies", _join_csv(grid_params.get("track_strategies", [])))
+    _add_arg(args, "--covariate-sets", _format_covariate_sets(grid_params.get("covariate_sets", [])))
 
-    args += ["--counts-raw-bins", _join_csv(grid_params.get("counts_raw_bins", []))]
-    args += ["--counts-gauss-bins", _join_csv(grid_params.get("counts_gauss_bins", []))]
-    args += ["--inv-dist-gauss-bins", _join_csv(grid_params.get("inv_dist_gauss_bins", []))]
-    args += ["--exp-decay-bins", _join_csv(grid_params.get("exp_decay_bins", []))]
-    args += ["--exp-decay-adaptive-bins", _join_csv(grid_params.get("exp_decay_adaptive_bins", []))]
+    _add_arg(args, "--counts-raw-bins", _join_csv(grid_params.get("counts_raw_bins", [])))
+    _add_arg(args, "--counts-gauss-bins", _join_csv(grid_params.get("counts_gauss_bins", [])))
+    _add_arg(args, "--inv-dist-gauss-bins", _join_csv(grid_params.get("inv_dist_gauss_bins", [])))
+    _add_arg(args, "--exp-decay-bins", _join_csv(grid_params.get("exp_decay_bins", [])))
+    _add_arg(args, "--exp-decay-adaptive-bins", _join_csv(grid_params.get("exp_decay_adaptive_bins", [])))
 
-    args += ["--counts-gauss-sigma-grid", _join_csv(grid_params.get("counts_gauss_sigma_grid", []))]
-    args += ["--counts-gauss-sigma-units", str(grid_params.get("counts_gauss_sigma_units"))]
-    args += ["--inv-dist-gauss-sigma-grid", _join_csv(grid_params.get("inv_dist_gauss_sigma_grid", []))]
-    args += [
+    _add_arg(args, "--counts-gauss-sigma-grid", _join_csv(grid_params.get("counts_gauss_sigma_grid", [])))
+    _add_arg(args, "--counts-gauss-sigma-units", str(grid_params.get("counts_gauss_sigma_units")))
+    _add_arg(args, "--inv-dist-gauss-sigma-grid", _join_csv(grid_params.get("inv_dist_gauss_sigma_grid", [])))
+    _add_arg(
+        args,
         "--inv-dist-gauss-max-distance-bp-grid",
         _join_csv(grid_params.get("inv_dist_gauss_max_distance_bp_grid", [])),
-    ]
-    args += ["--inv-dist-gauss-sigma-units", str(grid_params.get("inv_dist_gauss_sigma_units"))]
+    )
+    _add_arg(args, "--inv-dist-gauss-sigma-units", str(grid_params.get("inv_dist_gauss_sigma_units")))
 
     pairs = _format_inv_dist_pairs(grid_params.get("inv_dist_gauss_pairs"))
     if pairs:
-        args += ["--inv-dist-gauss-pairs", pairs]
+        _add_arg(args, "--inv-dist-gauss-pairs", pairs)
 
-    args += ["--exp-decay-decay-bp-grid", _join_csv(grid_params.get("exp_decay_decay_bp_grid", []))]
-    args += ["--exp-decay-max-distance-bp-grid", _join_csv(grid_params.get("exp_decay_max_distance_bp_grid", []))]
-    args += ["--exp-decay-adaptive-k-grid", _join_csv(grid_params.get("exp_decay_adaptive_k_grid", []))]
-    args += [
+    _add_arg(args, "--exp-decay-decay-bp-grid", _join_csv(grid_params.get("exp_decay_decay_bp_grid", [])))
+    _add_arg(args, "--exp-decay-max-distance-bp-grid", _join_csv(grid_params.get("exp_decay_max_distance_bp_grid", [])))
+    _add_arg(args, "--exp-decay-adaptive-k-grid", _join_csv(grid_params.get("exp_decay_adaptive_k_grid", [])))
+    _add_arg(
+        args,
         "--exp-decay-adaptive-min-bandwidth-bp-grid",
         _join_csv(grid_params.get("exp_decay_adaptive_min_bandwidth_bp_grid", [])),
-    ]
-    args += [
+    )
+    _add_arg(
+        args,
         "--exp-decay-adaptive-max-distance-bp-grid",
         _join_csv(grid_params.get("exp_decay_adaptive_max_distance_bp_grid", [])),
-    ]
+    )
 
-    args += ["--pearson-score-window-bins", str(grid_params.get("pearson_score_window_bins"))]
-    args += ["--pearson-score-smoothing", str(grid_params.get("pearson_score_smoothing"))]
+    _add_arg(args, "--pearson-score-window-bins", str(grid_params.get("pearson_score_window_bins")))
+    _add_arg(args, "--pearson-score-smoothing", str(grid_params.get("pearson_score_smoothing")))
     if grid_params.get("pearson_score_smooth_param") is not None:
-        args += ["--pearson-score-smooth-param", str(grid_params.get("pearson_score_smooth_param"))]
-    args += ["--pearson-score-transform", str(grid_params.get("pearson_score_transform"))]
+        _add_arg(args, "--pearson-score-smooth-param", str(grid_params.get("pearson_score_smooth_param")))
+    _add_arg(args, "--pearson-score-transform", str(grid_params.get("pearson_score_transform")))
     if grid_params.get("pearson_score_zscore"):
-        args.append("--pearson-score-zscore")
+        _add_arg(args, "--pearson-score-zscore")
     pearson_score_weights = grid_params.get("pearson_score_weights")
     if pearson_score_weights:
-        args += ["--pearson-score-weights", _join_csv(pearson_score_weights)]
+        _add_arg(args, "--pearson-score-weights", _join_csv(pearson_score_weights))
 
-    args += ["--spearman-score-window-bins", str(grid_params.get("spearman_score_window_bins"))]
-    args += ["--spearman-score-smoothing", str(grid_params.get("spearman_score_smoothing"))]
+    _add_arg(args, "--spearman-score-window-bins", str(grid_params.get("spearman_score_window_bins")))
+    _add_arg(args, "--spearman-score-smoothing", str(grid_params.get("spearman_score_smoothing")))
     if grid_params.get("spearman_score_smooth_param") is not None:
-        args += ["--spearman-score-smooth-param", str(grid_params.get("spearman_score_smooth_param"))]
-    args += ["--spearman-score-transform", str(grid_params.get("spearman_score_transform"))]
+        _add_arg(args, "--spearman-score-smooth-param", str(grid_params.get("spearman_score_smooth_param")))
+    _add_arg(args, "--spearman-score-transform", str(grid_params.get("spearman_score_transform")))
     if grid_params.get("spearman_score_zscore"):
-        args.append("--spearman-score-zscore")
+        _add_arg(args, "--spearman-score-zscore")
     spearman_score_weights = grid_params.get("spearman_score_weights")
     if spearman_score_weights:
-        args += ["--spearman-score-weights", _join_csv(spearman_score_weights)]
+        _add_arg(args, "--spearman-score-weights", _join_csv(spearman_score_weights))
 
     if grid_params.get("include_trinuc"):
-        args.append("--include-trinuc")
+        _add_arg(args, "--include-trinuc")
 
     chroms = grid_params.get("chroms")
     if chroms:
-        args += ["--chroms", _join_csv(chroms)]
+        _add_arg(args, "--chroms", _join_csv(chroms))
 
     if grid_params.get("save_per_bin"):
-        args.append("--save-per-bin")
+        _add_arg(args, "--save-per-bin")
 
     if not grid_params.get("standardise_tracks", True):
-        args.append("--no-standardise-tracks")
-    args += ["--standardise-scope", str(grid_params.get("standardise_scope"))]
+        _add_arg(args, "--no-standardise-tracks")
+    _add_arg(args, "--standardise-scope", str(grid_params.get("standardise_scope")))
 
-    return f"cd {shlex.quote(str(project_root))} && {shlex.join(args)}"
+    lines = ["python -m scripts.grid_search.cli \\"]
+    for flag, value in args:
+        if value is None:
+            lines.append(f"  {flag} \\")
+        else:
+            lines.append(f"  {flag} {_quote(str(value))} \\")
+    if lines:
+        lines[-1] = lines[-1].rstrip(" \\")
+    return "\n".join(lines)
 
 
 def run_one_config(
@@ -418,6 +448,14 @@ def run_grid_experiment(
         if path.is_absolute():
             return path
         return project_root / path
+
+    def _relpath(path_value: str | Path) -> str:
+        path = Path(path_value).resolve()
+        try:
+            rel = path.relative_to(project_root)
+        except ValueError:
+            return str(path)
+        return rel.as_posix()
 
     out_dir_path = Path(out_dir)
     if not out_dir_path.is_absolute():
@@ -701,15 +739,6 @@ def run_grid_experiment(
 
     grid_params_path = out_dir / "grid_search_params.json"
     if resume_params is None:
-        def _relpath(path_value: str | Path) -> str:
-            path = Path(path_value).resolve()
-            project_root = Path(__file__).resolve().parents[2]
-            try:
-                rel = path.relative_to(project_root)
-            except ValueError:
-                return str(path)
-            return rel.as_posix()
-
         mut_path_out: str | list[str]
         if isinstance(mut_path, (list, tuple)):
             mut_path_out = [_relpath(p) for p in mut_path]
@@ -719,6 +748,7 @@ def run_grid_experiment(
             "mut_path": mut_path_out,
             "fai_path": _relpath(fai_path),
             "fasta_path": _relpath(fasta_path),
+            "dnase_map_path": None if dnase_map_path is None else _relpath(dnase_map_path),
             "dnase_bigwigs": {key: _relpath(path) for key, path in dnase_bigwigs.items()},
             "timing_bigwig": None if timing_bigwig is None else _relpath(timing_bigwig),
             "k_samples": list(k_samples),
@@ -1193,9 +1223,9 @@ def run_grid_experiment(
                                     "standardise",
                                     f"{standardise_scope} ({'on' if standardise_tracks else 'off'})",
                                 )
-                                log_kv(logger, "rf_seed", str(rf_seed))
-                                log_kv(logger, "out_dir", str(run_dir))
                                 log_kv(logger, "celltypes", ", ".join(celltypes))
+                                log_kv(logger, "rf_seed", str(rf_seed))
+                                log_kv(logger, "out_dir", _relpath(run_dir))
                                 run_start = time.perf_counter()
 
                                 # save config for this run
@@ -1635,10 +1665,10 @@ def run_grid_experiment(
                                 rows.append(agg)
 
                                 out_paths = {
-                                    "config": str(run_dir / "config.json"),
-                                    "chrom_sum": str(run_dir / "chrom_summary.csv"),
-                                    "per_bin": str(run_dir / "per_bin.csv") if save_per_bin else "skipped",
-                                    "results": str(out_dir / "results.csv"),
+                                    "config": _relpath(run_dir / "config.json"),
+                                    "chrom_sum": _relpath(run_dir / "chrom_summary.csv"),
+                                    "per_bin": _relpath(run_dir / "per_bin.csv") if save_per_bin else "skipped",
+                                    "results": _relpath(out_dir / "results.csv"),
                                 }
 
                                 summarise_run(
@@ -1719,7 +1749,6 @@ def run_grid_experiment(
                                     results_columns,
                                 )
                                 completed_run_ids.add(str(run_id))
-                                logger.info("saved run outputs %s", str(run_dir))
                                 elapsed = time.perf_counter() - t0
                                 logger.info("Run end %s (%s)", run_id, f"{elapsed:.1f}s")
 
