@@ -58,7 +58,7 @@ def log_kv(logger: logging.Logger, key: str, value: str) -> None:
 @contextmanager
 def timed(logger: logging.Logger, label: str) -> Iterator[None]:
     t0 = time.perf_counter()
-    logger.info("START %s ...", label)
+    logger.info("START %s", label)
     try:
         yield
     finally:

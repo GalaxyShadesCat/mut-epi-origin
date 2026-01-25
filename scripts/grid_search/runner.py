@@ -884,6 +884,7 @@ def run_grid_experiment(
     rows: List[Dict[str, Any]] = []
     correct_counts = {"true": 0, "false": 0, "none": 0}
     rf_top_feature_counts: Dict[str, int] = {}
+    run_counter = len(completed_run_ids)
 
     max_downsample = max(
         (val for val in downsample_grid if val is not None),
@@ -1296,7 +1297,8 @@ def run_grid_experiment(
                                 t0 = time.perf_counter()
                                 run_dir = ensure_dir(runs_dir / run_id)
                                 celltypes = list(dnase_bigwigs.keys())
-                                log_section(logger, f"Run start  [{len(rows) + 1}/{total_runs}]")
+                                run_counter += 1
+                                log_section(logger, f"Run start [{run_counter}/{total_runs}]")
                                 log_kv(logger, "id", run_id)
                                 log_kv(
                                     logger,
@@ -1305,7 +1307,6 @@ def run_grid_experiment(
                                 )
                                 log_kv(logger, "celltypes", ", ".join(celltypes))
                                 log_kv(logger, "rf_seed", str(rf_seed))
-                                log_kv(logger, "out_dir", _relpath(run_dir))
                                 run_start = time.perf_counter()
 
                                 # save config for this run
