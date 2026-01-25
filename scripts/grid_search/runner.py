@@ -617,6 +617,8 @@ def run_grid_experiment(
 
     if dnase_bigwigs is None:
         dnase_bigwigs, celltype_map = _load_dnase_map_path(Path(dnase_map_path))
+    elif celltype_map is None and dnase_map_path is not None:
+        _, celltype_map = _load_dnase_map_path(Path(dnase_map_path))
     if not dnase_bigwigs:
         raise ValueError("dnase_bigwigs must be a non-empty mapping of celltype->bigWig path.")
 
