@@ -1,7 +1,7 @@
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import altair as alt
 import numpy as np
@@ -872,6 +872,11 @@ else:
     if not accuracy_cols:
         st.info("Accuracy columns not available for this dataset.")
     else:
+        def _series_or_nan(df: pd.DataFrame, col_name: str) -> pd.Series:
+            if col_name in df.columns:
+                return pd.to_numeric(df[col_name], errors="coerce")
+            return pd.Series(np.nan, index=df.index)
+
         if metric_choice is None:
             long_rows = []
             for metric, spec in METRICS.items():
@@ -879,11 +884,21 @@ else:
                 if col not in plot_df.columns:
                     continue
                 acc = plot_df[col].fillna(0.0).astype(float)
+                margin = _series_or_nan(plot_df, spec["best_margin"])
+                best_values = _series_or_nan(plot_df, spec["best_value"])
+                if weight_basis == "metric_abs":
+                    margin_weight = _standout_weights(margin, best_values)
+                elif weight_basis == "n_bins_total":
+                    margin_weight = _series_or_nan(plot_df, "n_bins_total")
+                else:
+                    margin_weight = pd.Series(1.0, index=plot_df.index)
                 long_rows.append(
                     plot_df.assign(
                         accuracy=acc,
                         metric_key=metric,
                         metric_label=metric_labels.get(metric, metric),
+                        margin=margin,
+                        margin_weight=margin_weight,
                     )
                 )
             if not long_rows:
@@ -897,7 +912,17 @@ else:
             else:
                 plot_df["accuracy"] = plot_df[chosen_col].fillna(0.0).astype(float)
                 plot_df["metric_label"] = metric_choice_label
+                margin = _series_or_nan(plot_df, METRICS[metric_choice]["best_margin"])
+                best_values = _series_or_nan(plot_df, METRICS[metric_choice]["best_value"])
+                if weight_basis == "metric_abs":
+                    plot_df["margin_weight"] = _standout_weights(margin, best_values)
+                elif weight_basis == "n_bins_total":
+                    plot_df["margin_weight"] = _series_or_nan(plot_df, "n_bins_total")
+                else:
+                    plot_df["margin_weight"] = 1.0
+                plot_df["margin"] = margin
         if "accuracy" in plot_df.columns:
+            overall_df = plot_df.copy()
             plot_df = plot_df[plot_df["mutation_burden"] > 0].copy()
             if plot_df.empty:
                 st.info("Mutation burden must be positive to plot on a log scale.")
@@ -939,23 +964,63 @@ else:
                                     plot_df["bucket_low"].astype(float)
                                     * plot_df["bucket_high"].astype(float)
                                 )
+                                def _count_unique_samples(series: pd.Series) -> int:
+                                    unique: Set[str] = set()
+                                    for raw in series.dropna():
+                                        for sample_id in str(raw).split(","):
+                                            sample_id = sample_id.strip()
+                                            if sample_id:
+                                                unique.add(sample_id)
+                                    return len(unique)
+
+                                sample_id_col = None
+                                if "selected_sample_ids" in plot_df.columns:
+                                    sample_id_col = "selected_sample_ids"
+                                elif "sample_id" in plot_df.columns:
+                                    plot_df["selected_sample_ids"] = plot_df["sample_id"].astype(str)
+                                    sample_id_col = "selected_sample_ids"
+
+                                agg_spec = {
+                                    "mutation_burden": ("bucket_mid", "mean"),
+                                    "accuracy": ("accuracy", "mean"),
+                                    "n_runs": ("accuracy", "size"),
+                                    "bucket_low": ("bucket_low", "min"),
+                                    "bucket_high": ("bucket_high", "max"),
+                                }
+                                if sample_id_col is not None:
+                                    agg_spec["n_samples"] = (sample_id_col, _count_unique_samples)
+                                elif "n_selected_samples" in plot_df.columns:
+                                    agg_spec["n_samples"] = ("n_selected_samples", "mean")
+                                else:
+                                    agg_spec["n_samples"] = ("accuracy", "size")
+
+                                group_cols = [
+                                    "track_strategy",
+                                    "metric_label",
+                                    "bin_size",
+                                    "bucket_mid",
+                                ]
+
+                                def _weighted_margin(sub: pd.DataFrame) -> float:
+                                    margin_vals = pd.to_numeric(sub["margin"], errors="coerce")
+                                    weight_vals = pd.to_numeric(sub["margin_weight"], errors="coerce")
+                                    mask = margin_vals.notna()
+                                    if not mask.any():
+                                        return float("nan")
+                                    weights = weight_vals.where(mask)
+                                    if weights.notna().any() and weights.sum() > 0:
+                                        return float((margin_vals[mask] * weights[mask]).sum() / weights[mask].sum())
+                                    return float(margin_vals[mask].mean())
+
+                                grouped = plot_df.groupby(group_cols, dropna=False)
+                                agg_df = grouped.agg(**agg_spec).reset_index()
+                                weighted_margin_df = (
+                                    grouped.apply(_weighted_margin)
+                                    .rename("weighted_margin")
+                                    .reset_index()
+                                )
                                 plot_df = (
-                                    plot_df.groupby(
-                                        [
-                                            "track_strategy",
-                                            "metric_label",
-                                            "bin_size",
-                                            "bucket_mid",
-                                        ],
-                                        as_index=False,
-                                    )
-                                    .agg(
-                                        mutation_burden=("bucket_mid", "mean"),
-                                        accuracy=("accuracy", "mean"),
-                                        n_runs=("accuracy", "size"),
-                                        bucket_low=("bucket_low", "min"),
-                                        bucket_high=("bucket_high", "max"),
-                                    )
+                                    agg_df.merge(weighted_margin_df, on=group_cols, how="left")
                                     .dropna(subset=["mutation_burden", "accuracy"])
                                 )
                                 if plot_df.empty:
@@ -969,6 +1034,9 @@ else:
                                         pct.astype(str) + "%",
                                     )
                                     plot_df["accuracy_label"] = pct_label
+                                    plot_df["weighted_margin_label"] = plot_df["weighted_margin"].apply(
+                                        lambda v: f"{v:.4f}" if np.isfinite(v) else "n/a"
+                                    )
                                     if top_n_choice != "All":
                                         config_cols = [
                                             "track_strategy",
@@ -985,7 +1053,7 @@ else:
                                         ):
                                             config_cols = ["track_strategy"]
                                         config_scores = (
-                                            plot_df.groupby(config_cols, as_index=False)
+                                            overall_df.groupby(config_cols, as_index=False)
                                             .agg(avg_accuracy=("accuracy", "mean"))
                                             .sort_values("avg_accuracy", ascending=False)
                                         )
@@ -994,6 +1062,27 @@ else:
                                             top_configs[config_cols], on=config_cols
                                         )
 
+                                    config_scores = (
+                                        overall_df.groupby(
+                                            ["track_strategy", "metric_label", "bin_size"],
+                                            as_index=False,
+                                        )
+                                        .agg(avg_accuracy=("accuracy", "mean"))
+                                    )
+                                    overall_margin_df = (
+                                        overall_df.groupby(
+                                            ["track_strategy", "metric_label", "bin_size"],
+                                            dropna=False,
+                                        )
+                                        .apply(_weighted_margin)
+                                        .rename("overall_weighted_margin")
+                                        .reset_index()
+                                    )
+                                    config_scores = config_scores.merge(
+                                        overall_margin_df,
+                                        on=["track_strategy", "metric_label", "bin_size"],
+                                        how="left",
+                                    )
                                     plot_df["bin_label"] = plot_df["bin_size"].apply(
                                         lambda x: int(x)
                                         if float(x).is_integer()
@@ -1034,6 +1123,11 @@ else:
                                     ]
                                 ]
                                 .drop_duplicates()
+                                .merge(
+                                    config_scores,
+                                    on=["track_strategy", "metric_label", "bin_size"],
+                                    how="left",
+                                )
                                 .assign(
                                     track_rank=lambda d: d["track_strategy"]
                                     .map(track_rank)
@@ -1041,12 +1135,26 @@ else:
                                     metric_rank=lambda d: d["metric_label"]
                                     .map(metric_rank)
                                     .fillna(len(metric_rank)),
+                                    avg_accuracy=lambda d: d["avg_accuracy"].fillna(-1.0),
                                 )
                                 .sort_values(
-                                    ["track_rank", "metric_rank", "bin_size", "config_label"]
+                                    ["avg_accuracy", "track_rank", "metric_rank", "bin_size", "config_label"],
+                                    ascending=[False, True, True, True, True],
                                 )
                             )
                             config_domain = order_df["config_label"].tolist()
+                            plot_df = plot_df.merge(
+                                config_scores,
+                                on=["track_strategy", "metric_label", "bin_size"],
+                                how="left",
+                            )
+                            plot_df["avg_accuracy"] = plot_df["avg_accuracy"].fillna(float("nan"))
+                            plot_df["avg_accuracy_label"] = plot_df["avg_accuracy"].apply(
+                                lambda v: _format_pct(v) if np.isfinite(v) else "n/a"
+                            )
+                            plot_df["overall_weighted_margin_label"] = plot_df["overall_weighted_margin"].apply(
+                                lambda v: f"{v:.4f}" if np.isfinite(v) else "n/a"
+                            )
                             tooltip = [
                                 alt.Tooltip("track_strategy:N", title="Track"),
                                 alt.Tooltip("metric_label:N", title="Metric"),
@@ -1059,8 +1167,14 @@ else:
                                     title="Mutations (high)",
                                     format=",.0f",
                                 ),
-                                alt.Tooltip("accuracy_label:N", title="Accuracy"),
-                                alt.Tooltip("n_runs:Q", title="Runs"),
+                                alt.Tooltip("accuracy_label:N", title="Bucket accuracy"),
+                                alt.Tooltip("avg_accuracy_label:N", title="Overall accuracy"),
+                                alt.Tooltip("weighted_margin_label:N", title="Bucket weighted avg margin"),
+                                alt.Tooltip(
+                                    "overall_weighted_margin_label:N",
+                                    title="Overall weighted avg margin",
+                                ),
+                                alt.Tooltip("n_samples:Q", title="Samples", format=",.0f"),
                             ]
                             chart_height = max(240, 80 * len(config_domain))
                             chart = (

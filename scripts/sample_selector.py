@@ -273,7 +273,7 @@ def infer_sample_order(
         s = s[s != ""]
         samples.update(s.tolist())
 
-    ordered = list(samples)
+    ordered = sorted(samples)
     rng = random.Random(seed)
     rng.shuffle(ordered)
 
