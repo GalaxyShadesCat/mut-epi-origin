@@ -1136,10 +1136,18 @@ else:
                                     .map(metric_rank)
                                     .fillna(len(metric_rank)),
                                     avg_accuracy=lambda d: d["avg_accuracy"].fillna(-1.0),
+                                    overall_weighted_margin=lambda d: d["overall_weighted_margin"].fillna(-1.0),
                                 )
                                 .sort_values(
-                                    ["avg_accuracy", "track_rank", "metric_rank", "bin_size", "config_label"],
-                                    ascending=[False, True, True, True, True],
+                                    [
+                                        "avg_accuracy",
+                                        "overall_weighted_margin",
+                                        "track_rank",
+                                        "metric_rank",
+                                        "bin_size",
+                                        "config_label",
+                                    ],
+                                    ascending=[False, False, True, True, True, True],
                                 )
                             )
                             config_domain = order_df["config_label"].tolist()
