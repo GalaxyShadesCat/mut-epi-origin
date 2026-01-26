@@ -32,6 +32,7 @@ outputs/
 
 # Tools
 tools/picard.jar
+tools/assets/results_dashboard/config.json
 
 # Data (keep folder structure via .gitkeep and README files)
 data/**

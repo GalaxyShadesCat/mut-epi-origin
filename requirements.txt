@@ -1,3 +1,4 @@
+altair==5.5.0
 jupyter==1.1.1
 matplotlib==3.10.7
 numpy==2.2.2

@@ -3,21 +3,17 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-try:
-    import altair as alt
-except ImportError:  # pragma: no cover - optional
-    alt = None
-
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.dnase_map import DnaseCellTypeMap
-ASSETS_DIR = Path(__file__).resolve().with_name("results_dashboard_assets")
-CONFIG_PATH = ASSETS_DIR / "results_dashboard_config.json"
+
+ASSETS_DIR = Path(__file__).resolve().with_name("assets") / "results_dashboard"
+CONFIG_PATH = ASSETS_DIR / "config.json"
 DEFAULT_RESULTS_PATH = "outputs/experiments/simple_check/results.csv"
 EXPERIMENTS_DIR = ROOT / "outputs" / "experiments"
 
@@ -86,8 +82,8 @@ def _load_dnase_celltype_map() -> Optional[DnaseCellTypeMap]:
 
 
 def _format_celltype_label(
-    celltypes: List[str],
-    celltype_map: Optional[DnaseCellTypeMap],
+        celltypes: List[str],
+        celltype_map: Optional[DnaseCellTypeMap],
 ) -> str:
     if not celltypes:
         return "n/a"
@@ -245,6 +241,15 @@ def _style() -> None:
     )
 
 
+def _format_pct(value: float, decimals: int = 1) -> str:
+    if not np.isfinite(value):
+        return "n/a"
+    scaled = round(value * 100, decimals)
+    if abs(scaled - round(scaled)) < 1e-9:
+        return f"{int(round(scaled))}%"
+    return f"{scaled:.{decimals}f}%"
+
+
 def _load_config() -> dict:
     if not CONFIG_PATH.exists():
         return {}
@@ -364,10 +369,24 @@ def _resolve_bin_sizes(df: pd.DataFrame) -> pd.Series:
     return bin_size
 
 
+def _resolve_mutation_burden(df: pd.DataFrame) -> tuple[pd.Series, str]:
+    if "mutations_post_downsample" in df.columns:
+        return (
+            pd.to_numeric(df["mutations_post_downsample"], errors="coerce"),
+            "mutations_post_downsample",
+        )
+    if "n_mutations_total" in df.columns:
+        return (
+            pd.to_numeric(df["n_mutations_total"], errors="coerce"),
+            "n_mutations_total",
+        )
+    return pd.Series([np.nan] * len(df), index=df.index), "n/a"
+
+
 def track_metric_rankings_by_bin(
-    df: pd.DataFrame,
-    weight_basis: str,
-    top_n: int = 5,
+        df: pd.DataFrame,
+        weight_basis: str,
+        top_n: int = 5,
 ) -> pd.DataFrame:
     if "track_strategy" not in df.columns:
         return pd.DataFrame()
@@ -443,14 +462,14 @@ def track_metric_rankings_by_bin(
 
 
 def track_metric_rankings_by_tumour(
-    df: pd.DataFrame,
-    weight_basis: str,
-    top_n: int = 5,
+        df: pd.DataFrame,
+        weight_basis: str,
+        top_n: int = 5,
 ) -> pd.DataFrame:
     if (
-        "selected_tumour_types" not in df.columns
-        or "track_strategy" not in df.columns
-        or "correct_celltype_canon" not in df.columns
+            "selected_tumour_types" not in df.columns
+            or "track_strategy" not in df.columns
+            or "correct_celltype_canon" not in df.columns
     ):
         return pd.DataFrame()
     d = df.copy()
@@ -502,7 +521,7 @@ def track_metric_rankings_by_tumour(
             weights = pd.Series(1.0, index=d.index)
         subset["weight"] = weights.fillna(0.0).to_numpy()
         for (correct_celltype, tumour_type, track_strategy, bin_size), sub in subset.groupby(
-            ["correct_celltype", "tumour_type", "track_strategy", "bin_size"], dropna=False
+                ["correct_celltype", "tumour_type", "track_strategy", "bin_size"], dropna=False
         ):
             n_runs = int(len(sub))
             n_wins = int(sub["is_correct"].sum())
@@ -535,7 +554,7 @@ def track_metric_rankings_by_tumour(
     drows = pd.DataFrame(rows)
     summaries = []
     for (correct_celltype, tumour_type), sub in drows.groupby(
-        ["correct_celltype", "tumour_type"]
+            ["correct_celltype", "tumour_type"]
     ):
         ranked = sub.sort_values(["win_rate", "avg_margin"], ascending=[False, False]).reset_index(
             drop=True
@@ -623,6 +642,8 @@ with st.sidebar:
     )
     path_input = str(experiments[experiment_name])
     st.session_state["path_input"] = path_input
+    if not CONFIG_PATH.exists():
+        _persist_config()
 
     weight_basis = "metric_abs"
 
@@ -647,11 +668,6 @@ if st.session_state.get("path_input") != loaded_path:
     _persist_config()
 
 _ = source_label
-_save_config(
-    {
-        "path_input": loaded_path,
-    }
-)
 
 total_runs = len(df)
 sample_modes = (
@@ -726,9 +742,7 @@ else:
             win_rate = row.get("win_rate", float("nan"))
             metric_label = metric_labels.get(row["metric"], row["metric"])
             accuracy_label = (
-                "Accuracy: 100%"
-                if np.isfinite(win_rate) and abs(win_rate - 1.0) < 1e-12
-                else f"Accuracy: {win_rate * 100:.1f}%"
+                f"Accuracy: {_format_pct(win_rate)}"
                 if np.isfinite(win_rate)
                 else "Accuracy: not available"
             )
@@ -787,9 +801,7 @@ else:
             bin_size = row["bin_size"]
             bin_label = int(bin_size) if float(bin_size).is_integer() else float(bin_size)
             accuracy_label = (
-                "Accuracy: 100%"
-                if np.isfinite(win_rate) and abs(win_rate - 1.0) < 1e-12
-                else f"Accuracy: {win_rate * 100:.1f}%"
+                f"Accuracy: {_format_pct(win_rate)}"
                 if np.isfinite(win_rate)
                 else "Accuracy: not available"
             )
@@ -804,6 +816,298 @@ else:
                     "</div>",
                     unsafe_allow_html=True,
                 )
+
+st.subheader("Accuracy vs Mutation Burden")
+
+track_choices = ["All"] + sorted(df["track_strategy"].dropna().astype(str).unique().tolist())
+metric_keys = list(METRICS.keys())
+metric_choices = ["All"] + [metric_labels.get(m, m) for m in metric_keys]
+metric_label_to_key = {metric_labels.get(m, m): m for m in metric_keys}
+top_n_choices = ["All", 3, 5, 10]
+
+row_a, row_b = st.columns(2)
+with row_a:
+    track_choice = st.selectbox("Track", options=track_choices, index=0)
+with row_b:
+    metric_choice_label = st.selectbox("Metric", options=metric_choices, index=0)
+
+row_c, row_d = st.columns(2)
+with row_c:
+    bin_values = _resolve_bin_sizes(df).dropna().unique().tolist()
+    bin_values = sorted(bin_values)
+    bin_labels = [
+        int(x) if float(x).is_integer() else float(x) for x in bin_values
+    ]
+    bin_choices = ["All"] + [str(x) for x in bin_labels]
+    bin_choice = st.selectbox("Bin size", options=bin_choices, index=0)
+with row_d:
+    top_default_index = top_n_choices.index(5) if 5 in top_n_choices else 0
+    top_n_choice = st.selectbox("Top by accuracy", options=top_n_choices, index=top_default_index)
+
+plot_df = df.copy()
+plot_df["mutation_burden"], burden_source = _resolve_mutation_burden(plot_df)
+plot_df = plot_df[plot_df["mutation_burden"].notna()].copy()
+if plot_df.empty:
+    st.info("Mutation burden not available for this dataset.")
+else:
+    if track_choice != "All":
+        plot_df = plot_df[
+            plot_df["track_strategy"].astype(str).str.strip() == track_choice
+            ].copy()
+    plot_df["bin_size"] = _resolve_bin_sizes(plot_df)
+    if bin_choice != "All":
+        try:
+            bin_value = float(bin_choice)
+        except ValueError:
+            bin_value = None
+        if bin_value is not None:
+            plot_df = plot_df[plot_df["bin_size"] == bin_value].copy()
+    metric_choice = metric_label_to_key.get(metric_choice_label)
+    accuracy_cols = []
+    for metric, spec in METRICS.items():
+        col = spec["is_correct"]
+        if col in plot_df.columns:
+            plot_df[col] = _coerce_bool(plot_df[col]).astype(float)
+            accuracy_cols.append(col)
+    if not accuracy_cols:
+        st.info("Accuracy columns not available for this dataset.")
+    else:
+        if metric_choice is None:
+            long_rows = []
+            for metric, spec in METRICS.items():
+                col = spec["is_correct"]
+                if col not in plot_df.columns:
+                    continue
+                acc = plot_df[col].fillna(0.0).astype(float)
+                long_rows.append(
+                    plot_df.assign(
+                        accuracy=acc,
+                        metric_key=metric,
+                        metric_label=metric_labels.get(metric, metric),
+                    )
+                )
+            if not long_rows:
+                st.info("Selected metric not available for this dataset.")
+            else:
+                plot_df = pd.concat(long_rows, ignore_index=True)
+        else:
+            chosen_col = METRICS[metric_choice]["is_correct"]
+            if chosen_col not in plot_df.columns:
+                st.info("Selected metric not available for this dataset.")
+            else:
+                plot_df["accuracy"] = plot_df[chosen_col].fillna(0.0).astype(float)
+                plot_df["metric_label"] = metric_choice_label
+        if "accuracy" in plot_df.columns:
+            plot_df = plot_df[plot_df["mutation_burden"] > 0].copy()
+            if plot_df.empty:
+                st.info("Mutation burden must be positive to plot on a log scale.")
+            else:
+                plot_df = plot_df.dropna(subset=["mutation_burden", "accuracy"])
+                if plot_df.empty:
+                    st.info("No data available after filtering.")
+                else:
+                    plot_df = plot_df[plot_df["mutation_burden"] >= 100].copy()
+                    if plot_df.empty:
+                        st.info("Mutation burden must be at least 100 to plot.")
+                    else:
+                        min_burden = float(plot_df["mutation_burden"].min())
+                        max_burden = float(plot_df["mutation_burden"].max())
+                        if min_burden <= 0:
+                            st.info("Mutation burden must be positive to plot on a log scale.")
+                        else:
+                            min_burden = max(min_burden, 100.0)
+                            min_pow = int(np.floor(np.log10(min_burden)))
+                            max_pow = int(np.ceil(np.log10(max_burden)))
+                            bin_edges = np.unique(
+                                np.power(10, np.arange(min_pow, max_pow + 1, 1 / 3))
+                            )
+                            if len(bin_edges) < 2:
+                                bin_edges = np.array([min_burden, max_burden * 1.01])
+                            plot_df["mutation_bucket"] = pd.cut(
+                                plot_df["mutation_burden"],
+                                bins=bin_edges,
+                                include_lowest=True,
+                            )
+                            plot_df = plot_df[plot_df["mutation_bucket"].notna()].copy()
+                            if plot_df.empty:
+                                st.info("No data available after bucketing.")
+                            else:
+                                bucket = plot_df["mutation_bucket"]
+                                plot_df["bucket_low"] = bucket.apply(lambda x: float(x.left))
+                                plot_df["bucket_high"] = bucket.apply(lambda x: float(x.right))
+                                plot_df["bucket_mid"] = np.sqrt(
+                                    plot_df["bucket_low"].astype(float)
+                                    * plot_df["bucket_high"].astype(float)
+                                )
+                                plot_df = (
+                                    plot_df.groupby(
+                                        [
+                                            "track_strategy",
+                                            "metric_label",
+                                            "bin_size",
+                                            "bucket_mid",
+                                        ],
+                                        as_index=False,
+                                    )
+                                    .agg(
+                                        mutation_burden=("bucket_mid", "mean"),
+                                        accuracy=("accuracy", "mean"),
+                                        n_runs=("accuracy", "size"),
+                                        bucket_low=("bucket_low", "min"),
+                                        bucket_high=("bucket_high", "max"),
+                                    )
+                                    .dropna(subset=["mutation_burden", "accuracy"])
+                                )
+                                if plot_df.empty:
+                                    st.info("No data available after aggregation.")
+                                else:
+                                    pct = (plot_df["accuracy"] * 100).round(1)
+                                    is_int = np.isclose(pct % 1, 0)
+                                    pct_label = np.where(
+                                        is_int,
+                                        pct.round(0).astype(int).astype(str) + "%",
+                                        pct.astype(str) + "%",
+                                    )
+                                    plot_df["accuracy_label"] = pct_label
+                                    if top_n_choice != "All":
+                                        config_cols = [
+                                            "track_strategy",
+                                            "metric_label",
+                                            "bin_size",
+                                        ]
+                                        if metric_choice_label != "All":
+                                            config_cols = ["track_strategy", "bin_size"]
+                                        if bin_choice != "All":
+                                            config_cols = ["track_strategy", "metric_label"]
+                                        if (
+                                                metric_choice_label != "All"
+                                                and bin_choice != "All"
+                                        ):
+                                            config_cols = ["track_strategy"]
+                                        config_scores = (
+                                            plot_df.groupby(config_cols, as_index=False)
+                                            .agg(avg_accuracy=("accuracy", "mean"))
+                                            .sort_values("avg_accuracy", ascending=False)
+                                        )
+                                        top_configs = config_scores.head(int(top_n_choice))
+                                        plot_df = plot_df.merge(
+                                            top_configs[config_cols], on=config_cols
+                                        )
+
+                                    plot_df["bin_label"] = plot_df["bin_size"].apply(
+                                        lambda x: int(x)
+                                        if float(x).is_integer()
+                                        else float(x)
+                                    )
+                                    plot_df["config_label"] = (
+                                            plot_df["track_strategy"].astype(str)
+                                            + " [Bin size "
+                                            + plot_df["bin_label"].astype(str)
+                                            + "]\n"
+                                            + plot_df["metric_label"].astype(str)
+                                    )
+                            track_order = [
+                                "counts_raw",
+                                "counts_gauss",
+                                "inv_dist_gauss",
+                                "exp_decay",
+                                "exp_decay_adaptive",
+                            ]
+                            metric_order = [
+                                "Pearson r",
+                                "Pearson r (linear covariate)",
+                                "Spearman r",
+                                "Spearman r (linear covariate)",
+                                "Pearson local score (linear covariate)",
+                                "Spearman local score (linear covariate)",
+                                "RF (non-linear covariate)",
+                            ]
+                            track_rank = {name: idx for idx, name in enumerate(track_order)}
+                            metric_rank = {name: idx for idx, name in enumerate(metric_order)}
+                            order_df = (
+                                plot_df[
+                                    [
+                                        "config_label",
+                                        "track_strategy",
+                                        "metric_label",
+                                        "bin_size",
+                                    ]
+                                ]
+                                .drop_duplicates()
+                                .assign(
+                                    track_rank=lambda d: d["track_strategy"]
+                                    .map(track_rank)
+                                    .fillna(len(track_rank)),
+                                    metric_rank=lambda d: d["metric_label"]
+                                    .map(metric_rank)
+                                    .fillna(len(metric_rank)),
+                                )
+                                .sort_values(
+                                    ["track_rank", "metric_rank", "bin_size", "config_label"]
+                                )
+                            )
+                            config_domain = order_df["config_label"].tolist()
+                            tooltip = [
+                                alt.Tooltip("track_strategy:N", title="Track"),
+                                alt.Tooltip("metric_label:N", title="Metric"),
+                                alt.Tooltip("bin_size:Q", title="Bin size", format=",.0f"),
+                                alt.Tooltip(
+                                    "bucket_low:Q", title="Mutations (low)", format=",.0f"
+                                ),
+                                alt.Tooltip(
+                                    "bucket_high:Q",
+                                    title="Mutations (high)",
+                                    format=",.0f",
+                                ),
+                                alt.Tooltip("accuracy_label:N", title="Accuracy"),
+                                alt.Tooltip("n_runs:Q", title="Runs"),
+                            ]
+                            chart_height = max(240, 80 * len(config_domain))
+                            chart = (
+                                alt.Chart(plot_df)
+                                .mark_rect()
+                                .encode(
+                                    x=alt.X(
+                                        "bucket_low:Q",
+                                        title="Mutation Burden",
+                                        scale=alt.Scale(type="log", domain=[100, max_burden]),
+                                        axis=alt.Axis(
+                                            format="~s",
+                                            values=[
+                                                100,
+                                                1000,
+                                                10000,
+                                                100000,
+                                                1000000,
+                                            ],
+                                        ),
+                                    ),
+                                    x2="bucket_high:Q",
+                                    y=alt.Y(
+                                        "config_label:N",
+                                        title=None,
+                                        sort=config_domain,
+                                        axis=alt.Axis(
+                                            labelLimit=0,
+                                            labelOverlap=False,
+                                            labelSeparation=0,
+                                            labelExpr='split(datum.label, "\\n")',
+                                        ),
+                                    ),
+                                    color=alt.Color(
+                                        "accuracy:Q",
+                                        title="Accuracy",
+                                        scale=alt.Scale(domain=[0, 1], scheme="tealblues"),
+                                        legend=alt.Legend(format=".0%", orient="right", offset=28),
+                                    ),
+                                    tooltip=tooltip,
+                                )
+                                .properties(
+                                    height=chart_height,
+                                    padding={"top": 50, "left": 70, "right": 70},
+                                )
+                            )
+                            st.altair_chart(chart, use_container_width=True)
 
 st.subheader("Which metric separates the correct cell type best?")
 weight_label = "margin / (abs(second_best) + eps)"

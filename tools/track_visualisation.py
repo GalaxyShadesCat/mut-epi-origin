@@ -13,7 +13,7 @@ import streamlit as st
 import pyBigWig
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSETS_DIR = Path(__file__).resolve().with_name("track_visualisation_assets")
+ASSETS_DIR = Path(__file__).resolve().with_name("assets") / "track_visualisation"
 CONFIG_PATH = ASSETS_DIR / "track_visualisation_config.json"
 CONFIGS_PATH = ASSETS_DIR / "track_visualisation_configs.json"
 RESULTS_DIR = ASSETS_DIR / "saved_results"
