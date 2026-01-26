@@ -1015,7 +1015,9 @@ else:
                                 grouped = plot_df.groupby(group_cols, dropna=False)
                                 agg_df = grouped.agg(**agg_spec).reset_index()
                                 weighted_margin_df = (
-                                    grouped.apply(_weighted_margin)
+                                    plot_df[group_cols + ["margin", "margin_weight"]]
+                                    .groupby(group_cols, dropna=False)
+                                    .apply(_weighted_margin)
                                     .rename("weighted_margin")
                                     .reset_index()
                                 )
@@ -1070,14 +1072,17 @@ else:
                                         .agg(avg_accuracy=("accuracy", "mean"))
                                     )
                                     overall_margin_df = (
-                                        overall_df.groupby(
-                                            ["track_strategy", "metric_label", "bin_size"],
-                                            dropna=False,
-                                        )
-                                        .apply(_weighted_margin)
-                                        .rename("overall_weighted_margin")
-                                        .reset_index()
+                                    overall_df[
+                                        ["track_strategy", "metric_label", "bin_size", "margin", "margin_weight"]
+                                    ]
+                                    .groupby(
+                                        ["track_strategy", "metric_label", "bin_size"],
+                                        dropna=False,
                                     )
+                                    .apply(_weighted_margin)
+                                    .rename("overall_weighted_margin")
+                                    .reset_index()
+                                )
                                     config_scores = config_scores.merge(
                                         overall_margin_df,
                                         on=["track_strategy", "metric_label", "bin_size"],
@@ -1184,7 +1189,10 @@ else:
                                 ),
                                 alt.Tooltip("n_samples:Q", title="Samples", format=",.0f"),
                             ]
-                            chart_height = max(240, 80 * len(config_domain))
+                            row_height = 80
+                            if top_n_choice == 3:
+                                row_height = 95
+                            chart_height = max(240, row_height * len(config_domain))
                             chart = (
                                 alt.Chart(plot_df)
                                 .mark_rect()
