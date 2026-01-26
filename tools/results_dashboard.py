@@ -1017,7 +1017,7 @@ else:
                                 weighted_margin_df = (
                                     plot_df[group_cols + ["margin", "margin_weight"]]
                                     .groupby(group_cols, dropna=False)
-                                    .apply(_weighted_margin)
+                                    .apply(_weighted_margin, include_groups=False)
                                     .rename("weighted_margin")
                                     .reset_index()
                                 )
@@ -1079,7 +1079,7 @@ else:
                                         ["track_strategy", "metric_label", "bin_size"],
                                         dropna=False,
                                     )
-                                    .apply(_weighted_margin)
+                                    .apply(_weighted_margin, include_groups=False)
                                     .rename("overall_weighted_margin")
                                     .reset_index()
                                 )
@@ -1228,13 +1228,21 @@ else:
                                         "accuracy:Q",
                                         title="Accuracy",
                                         scale=alt.Scale(domain=[0, 1], scheme="tealblues"),
-                                        legend=alt.Legend(format=".0%", orient="right", offset=28),
+                                        legend=alt.Legend(
+                                            format=".0%",
+                                            orient="bottom",
+                                            direction="horizontal",
+                                            offset=12,
+                                            titlePadding=8,
+                                            labelPadding=6,
+                                            values=[0, 0.5, 1],
+                                        ),
                                     ),
                                     tooltip=tooltip,
                                 )
                                 .properties(
-                                    height=chart_height,
-                                    padding={"top": 50, "left": 70, "right": 70},
+                                    height=chart_height + 30,
+                                    padding={"top": 50, "left": 70, "right": 30, "bottom": 30},
                                 )
                             )
                             st.altair_chart(chart, use_container_width=True)
