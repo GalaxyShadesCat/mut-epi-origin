@@ -5,21 +5,20 @@ Create the environment:
 ```bash
 conda env create -f environment.yml
 conda activate mut-epi-origin
+pip install -r requirements.txt
 ```
 
 If `conda activate` fails, run `conda init` once and restart your shell.
 
 ## Streamlit apps
 
-Track visualisation:
+Track Visualisation:
 
 ```bash
 streamlit run tools/track_visualisation.py
 ```
 
-Track visualisation assets live in `tools/track_visualisation_assets/`.
-
-Results explorer:
+Results Dashboard:
 
 ```bash
 streamlit run tools/results_dashboard.py
