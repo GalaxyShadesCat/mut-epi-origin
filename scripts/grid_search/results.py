@@ -15,6 +15,8 @@ from scripts.grid_search.config import _prefixed_track_params
 def _build_results_columns(
     celltypes: Sequence[str],
     track_strategies: Sequence[str],
+    *,
+    accessibility_prefix: str = "dnase",
 ) -> List[str]:
     base_cols = [
         "sample_size_k",
@@ -126,7 +128,7 @@ def _build_results_columns(
         "downsample_ratio",
         "rf_top_feature_perm",
         "rf_top_feature_importance_perm",
-        "rf_top_is_dnase",
+        f"rf_top_is_{accessibility_prefix}",
         "rf_perm_importances_mean_json",
         "rf_feature_sign_corr_mean_json",
         "ridge_coef_mean_json",
@@ -201,7 +203,11 @@ def _extract_top_perm_feature(raw_json: Any) -> Tuple[Optional[str], Optional[fl
     return top_key, float(max_val) if top_key is not None else None
 
 
-def compute_derived_fields(row: Dict[str, Any]) -> Dict[str, Any]:
+def compute_derived_fields(
+    row: Dict[str, Any],
+    *,
+    accessibility_prefix: str = "dnase",
+) -> Dict[str, Any]:
     correct = canonicalise_celltype(row.get("correct_celltypes"))
     pred_raw = canonicalise_celltype(row.get("best_celltype_raw"))
     pred_linear = canonicalise_celltype(row.get("best_celltype_linear_resid"))
@@ -228,7 +234,8 @@ def compute_derived_fields(row: Dict[str, Any]) -> Dict[str, Any]:
         downsample_ratio = None
 
     top_key, top_val = _extract_top_perm_feature(row.get("rf_perm_importances_mean_json"))
-    rf_top_is_dnase = top_key.startswith("dnase_") if top_key else None
+    prefix = f"{accessibility_prefix}_"
+    rf_top_is_accessibility = top_key.startswith(prefix) if top_key else None
 
     return {
         "correct_celltype_canon": correct,
@@ -250,7 +257,7 @@ def compute_derived_fields(row: Dict[str, Any]) -> Dict[str, Any]:
         "downsample_ratio": downsample_ratio,
         "rf_top_feature_perm": top_key,
         "rf_top_feature_importance_perm": top_val,
-        "rf_top_is_dnase": rf_top_is_dnase,
+        f"rf_top_is_{accessibility_prefix}": rf_top_is_accessibility,
     }
 
 

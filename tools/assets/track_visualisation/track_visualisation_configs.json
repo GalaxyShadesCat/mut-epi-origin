@@ -1,60 +1,146 @@
 {
   "mela_approx_3000": {
     "params": {
-      "adaptive_k": 5,
-      "adaptive_max_distance_bp": 1000000,
-      "adaptive_min_bandwidth_bp": 50000,
-      "local_score_w": 1,
-      "bed_path": "/home/lem/projects/mut-epi-origin/data/processed/mela_icgc_approx_3000.bed",
-      "bin_size_adaptive": 1000000,
-      "bin_size_counts_gauss": 1000000,
-      "bin_size_counts_raw": 1000000,
-      "bin_size_exp": 1000000,
-      "bin_size_inv": 1000000,
-      "chrom": "all",
-      "covariates": [
-        "gc",
-        "cpg"
-      ],
-      "decay_bp": 200000,
-      "dnase_tracks": [
-        {
-          "name": "mela",
-          "overlay": true,
-          "path": "/home/lem/projects/mut-epi-origin/data/raw/DNase-seq/mela_ENCFF285GEW.bigWig"
-        },
-        {
-          "name": "fibr",
-          "overlay": false,
-          "path": "/home/lem/projects/mut-epi-origin/data/raw/DNase-seq/fibr_ENCFF355OPU.bigWig"
-        },
-        {
-          "name": "kera",
-          "overlay": false,
-          "path": "/home/lem/projects/mut-epi-origin/data/raw/DNase-seq/kera_ENCFF597YXQ.bigWig"
-        }
-      ],
-      "eps": 1.0,
-      "exp_max_distance_bp": 1000000,
+      "bed_path": "/home/lem/projects/mut-epi-origin/data/processed/mutations/LIRI_RK028_C01.bed",
       "fai_path": "/home/lem/projects/mut-epi-origin/data/raw/reference/GRCh37.fa.fai",
       "fasta_path": "/home/lem/projects/mut-epi-origin/data/raw/reference/GRCh37.fa",
-      "highlight_mode": "local_score",
-      "max_distance_bp": 1000000,
-      "sigma_counts": 1.0,
-      "sigma_inv": 0.5,
-      "sigma_units_counts": "bins",
-      "sigma_units_inv": "bins",
+      "chrom": "all",
+      "dnase_tracks": [
+        {
+          "name": "Hepatocyte__AC",
+          "path": "/home/lem/projects/mut-epi-origin/data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__AC.bigWig",
+          "overlay": false
+        },
+        {
+          "name": "Hepatocyte__AH",
+          "path": "/home/lem/projects/mut-epi-origin/data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__AH.bigWig",
+          "overlay": false
+        },
+        {
+          "name": "Hepatocyte__Normal",
+          "path": "/home/lem/projects/mut-epi-origin/data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__Normal.bigWig",
+          "overlay": false
+        }
+      ],
       "timing_bigwig": "/home/lem/projects/mut-epi-origin/data/raw/timing/repliSeq_SknshWaveSignalRep1.bigWig",
+      "covariates": [
+        "gc",
+        "cpg",
+        "timing"
+      ],
       "window_all": [
         0,
-        3095677412
+        2881033286
       ],
       "window_all_slider": [
         0,
-        3095677412
-      ]
+        2881033286
+      ],
+      "bin_size_counts_raw": 500000,
+      "bin_size_counts_gauss": 500000,
+      "sigma_units_counts": "bins",
+      "sigma_counts": 1.0,
+      "bin_size_inv": 500000,
+      "sigma_units_inv": "bins",
+      "sigma_inv": 0.5,
+      "max_distance_bp": 1000000,
+      "eps": 1.0,
+      "bin_size_exp": 500000,
+      "decay_bp": 200000,
+      "exp_max_distance_bp": 1000000,
+      "bin_size_adaptive": 500000,
+      "adaptive_k": 5,
+      "adaptive_min_bandwidth_bp": 50000,
+      "adaptive_max_distance_bp": 1000000,
+      "pearson_local_score_w": 5,
+      "pearson_score_smoothing": "none",
+      "pearson_score_smooth_param": 1.0,
+      "pearson_score_transform": "none",
+      "pearson_score_zscore": false,
+      "pearson_score_weight_shape": 0.7,
+      "pearson_score_weight_slope": 0.3,
+      "spearman_local_score_w": 5,
+      "spearman_score_smoothing": "none",
+      "spearman_score_smooth_param": 1.0,
+      "spearman_score_transform": "none",
+      "spearman_score_zscore": false,
+      "spearman_score_weight_shape": 0.7,
+      "spearman_score_weight_slope": 0.3,
+      "highlight_mode": "spearman_local_score"
     },
     "results_path": "/home/lem/projects/mut-epi-origin/tools/assets/track_visualisation/saved_results/mela_approx_3000.npz",
     "saved_at": "2026-01-20T08:56:35Z"
+  },
+  "LIRI": {
+    "params": {
+      "bed_path": "/home/lem/projects/mut-epi-origin/data/processed/mutations/LIRI_RK028_C01.bed",
+      "fai_path": "/home/lem/projects/mut-epi-origin/data/raw/reference/GRCh37.fa.fai",
+      "fasta_path": "/home/lem/projects/mut-epi-origin/data/raw/reference/GRCh37.fa",
+      "chrom": "all",
+      "dnase_tracks": [
+        {
+          "name": "Hepatocyte__AC",
+          "path": "/home/lem/projects/mut-epi-origin/data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__AC.bigWig",
+          "overlay": true
+        },
+        {
+          "name": "Hepatocyte__AH",
+          "path": "/home/lem/projects/mut-epi-origin/data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__AH.bigWig",
+          "overlay": false
+        },
+        {
+          "name": "Hepatocyte__Normal",
+          "path": "/home/lem/projects/mut-epi-origin/data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__Normal.bigWig",
+          "overlay": false
+        }
+      ],
+      "timing_bigwig": "/home/lem/projects/mut-epi-origin/data/raw/timing/repliSeq_SknshWaveSignalRep1.bigWig",
+      "covariates": [
+        "gc",
+        "cpg",
+        "timing"
+      ],
+      "window_all": [
+        0,
+        2881033286
+      ],
+      "window_all_slider": [
+        0,
+        2881033286
+      ],
+      "bin_size_counts_raw": 500000,
+      "bin_size_counts_gauss": 500000,
+      "sigma_units_counts": "bins",
+      "sigma_counts": 1.0,
+      "bin_size_inv": 500000,
+      "sigma_units_inv": "bins",
+      "sigma_inv": 0.5,
+      "max_distance_bp": 1000000,
+      "eps": 1.0,
+      "bin_size_exp": 500000,
+      "decay_bp": 200000,
+      "exp_max_distance_bp": 1000000,
+      "bin_size_adaptive": 500000,
+      "adaptive_k": 5,
+      "adaptive_min_bandwidth_bp": 50000,
+      "adaptive_max_distance_bp": 1000000,
+      "pearson_local_score_w": 5,
+      "pearson_score_smoothing": "none",
+      "pearson_score_smooth_param": 1.0,
+      "pearson_score_transform": "none",
+      "pearson_score_zscore": false,
+      "pearson_score_weight_shape": 0.7,
+      "pearson_score_weight_slope": 0.3,
+      "spearman_local_score_w": 5,
+      "spearman_score_smoothing": "none",
+      "spearman_score_smooth_param": 1.0,
+      "spearman_score_transform": "none",
+      "spearman_score_zscore": false,
+      "spearman_score_weight_shape": 0.7,
+      "spearman_score_weight_slope": 0.3,
+      "highlight_mode": "spearman_local_score"
+    },
+    "results_path": "/home/lem/projects/mut-epi-origin/tools/assets/track_visualisation/saved_results/LIRI.npz",
+    "saved_at": "2026-01-30T16:37:06Z"
   }
 }

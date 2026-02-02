@@ -46,6 +46,12 @@ def main() -> None:
         default=str(DEFAULT_MAP_PATH),
         help="Path to JSON file with dict of celltype->bigWig path or celltype mapping list",
     )
+    parser.add_argument(
+        "--atac-map-path",
+        type=str,
+        default=None,
+        help="Path to JSON file with dict of celltype->bigWig path or celltype mapping list (ATAC-seq)",
+    )
     parser.add_argument("--timing-bw", type=str, default=None, help="Path to RepliSeq bigWig (optional)")
     parser.add_argument(
         "--tumour-filter",
@@ -386,17 +392,32 @@ def main() -> None:
 
     dnase_bigwigs: Dict[str, str | Path]
     celltype_map: Optional[DnaseCellTypeMap] = None
+    if args.atac_map_path and args.dnase_map_json:
+        raise ValueError("Provide only one of --dnase-map-json or --atac-map-path.")
+    if args.atac_map_path and args.dnase_map_path != str(DEFAULT_MAP_PATH):
+        raise ValueError("Provide only one of --dnase-map-path or --atac-map-path.")
     if args.dnase_map_json:
         dnase_bigwigs = json.loads(args.dnase_map_json)
         if not isinstance(dnase_bigwigs, dict) or not all(
             isinstance(v, str) for v in dnase_bigwigs.values()
         ):
             raise ValueError("--dnase-map-json must be a JSON object mapping celltype->path.")
+        dnase_map_path = None
+        atac_map_path = None
     else:
-        dnase_map_path = Path(args.dnase_map_path)
-        if not dnase_map_path.exists():
-            raise FileNotFoundError(f"DNase map path not found: {dnase_map_path}")
-        dnase_bigwigs, celltype_map = _load_dnase_map_path(dnase_map_path)
+        selected_map_path = Path(args.atac_map_path or args.dnase_map_path)
+        if not selected_map_path.exists():
+            label = "ATAC" if args.atac_map_path else "DNase"
+            raise FileNotFoundError(f"{label} map path not found: {selected_map_path}")
+        track_key = "atac_path" if args.atac_map_path else "dnase_path"
+        label = "ATAC" if args.atac_map_path else "DNase"
+        dnase_bigwigs, celltype_map = _load_dnase_map_path(
+            selected_map_path,
+            track_key=track_key,
+            label=label,
+        )
+        dnase_map_path = None if args.atac_map_path else selected_map_path
+        atac_map_path = selected_map_path if args.atac_map_path else None
 
     mut_path: str | Path | List[Path]
     mut_path_tokens = [p.strip() for p in args.mut_path.split(",") if p.strip()]
@@ -410,6 +431,8 @@ def main() -> None:
         fai_path=args.fai_path,
         fasta_path=args.fasta_path,
         dnase_bigwigs=dnase_bigwigs,
+        dnase_map_path=dnase_map_path,
+        atac_map_path=atac_map_path,
         celltype_map=celltype_map,
         timing_bigwig=args.timing_bw if args.timing_bw else None,
         k_samples=k_samples,

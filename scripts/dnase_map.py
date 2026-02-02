@@ -69,7 +69,13 @@ class DnaseCellTypeMap:
         self._aliases[norm] = entry
 
     @classmethod
-    def from_json(cls, path: str | Path, *, project_root: str | Path | None = None) -> "DnaseCellTypeMap":
+    def from_json(
+        cls,
+        path: str | Path,
+        *,
+        project_root: str | Path | None = None,
+        track_key: str | Sequence[str] | None = None,
+    ) -> "DnaseCellTypeMap":
         path = Path(path)
         data = json.loads(path.read_text(encoding="utf-8"))
 
@@ -83,13 +89,27 @@ class DnaseCellTypeMap:
             raise ValueError("Mapping JSON must be a list or dict.")
 
         base = Path(project_root) if project_root else path.parent
+        if track_key is None:
+            track_keys: List[str] = ["dnase_path"]
+        elif isinstance(track_key, str):
+            track_keys = [track_key]
+        else:
+            track_keys = list(track_key)
+        track_keys = track_keys + ["path", "file", "filename"]
         entries: List[DnaseCellTypeEntry] = []
         for row in entries_raw:
             key = str(row.get("key") or "").strip()
             name = str(row.get("name") or row.get("cell_type") or key).strip()
-            dnase_raw = row.get("dnase_path") or row.get("path") or row.get("file") or row.get("filename")
+            dnase_raw = None
+            for key_name in track_keys:
+                dnase_raw = row.get(key_name)
+                if dnase_raw:
+                    break
             if not dnase_raw:
-                raise ValueError(f"Missing dnase_path for cell type '{key or name}'.")
+                expected = ", ".join(track_keys)
+                raise ValueError(
+                    f"Missing track path for cell type '{key or name}'. Expected one of: {expected}."
+                )
             dnase_path = Path(dnase_raw)
             if not dnase_path.is_absolute():
                 dnase_path = base / dnase_path

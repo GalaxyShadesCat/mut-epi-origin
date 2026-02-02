@@ -1,4 +1,4 @@
-"""Grid search runner for mutation vs DNase experiments."""
+"""Grid search runner for mutation vs accessibility experiments."""
 
 from __future__ import annotations
 
@@ -118,8 +118,11 @@ def _build_cli_command(grid_params: Dict[str, Any], out_dir: Path) -> str:
     _add_arg(args, "--mut-path", str(mut_path))
     _add_arg(args, "--fai-path", str(grid_params.get("fai_path")))
     _add_arg(args, "--fasta-path", str(grid_params.get("fasta_path")))
+    atac_map_path = grid_params.get("atac_map_path")
     dnase_map_path = grid_params.get("dnase_map_path")
-    if dnase_map_path:
+    if atac_map_path:
+        _add_arg(args, "--atac-map-path", str(atac_map_path))
+    elif dnase_map_path:
         _add_arg(args, "--dnase-map-path", str(dnase_map_path))
     else:
         _add_arg(args, "--dnase-map-json", json.dumps(grid_params.get("dnase_bigwigs", {})))
@@ -266,6 +269,7 @@ def run_one_config(
         # standardisation
         standardise_tracks: bool = True,
         standardise_scope: str = "per_chrom",
+        accessibility_prefix: str = "dnase",
         # shared inputs
         shared: Optional[Dict[str, Any]] = None,
         pos_by_chrom: Optional[Dict[str, np.ndarray]] = None,
@@ -355,7 +359,7 @@ def run_one_config(
         "pearson_r_rf_resid": float(r_rf),
         "spearman_r_raw": float(s_raw),
         "spearman_r_linear_resid": float(s_lin),
-        "n_bins_valid_mut_and_dnase": int(mask_valid.sum()),
+        f"n_bins_valid_mut_and_{accessibility_prefix}": int(mask_valid.sum()),
         "pearson_local_score_global": float(score_res_pearson.global_score),
         "pearson_local_score_negative_corr_fraction": float(
             score_res_pearson.negative_corr_fraction
@@ -379,7 +383,8 @@ def run_grid_experiment(
         fai_path: str | Path,
         fasta_path: str | Path,
         dnase_bigwigs: Optional[Dict[str, str | Path]] = None,
-        dnase_map_path: str | Path = DEFAULT_MAP_PATH,
+        dnase_map_path: str | Path | None = None,
+        atac_map_path: str | Path | None = None,
         celltype_map: Optional[DnaseCellTypeMap] = None,
         timing_bigwig: Optional[str | Path],
         k_samples: Optional[List[int | None]] = None,
@@ -434,11 +439,6 @@ def run_grid_experiment(
 ) -> pd.DataFrame:
     def _nanmean_safe(values: np.ndarray) -> float:
         return float(np.nanmean(values)) if np.isfinite(values).any() else float("nan")
-    logger = setup_rich_logging(
-        level=logging.DEBUG if verbose else logging.INFO,
-        logger_name="mut_vs_dnase",
-        force=True,
-    )
 
     project_root = Path(__file__).resolve().parents[2]
 
@@ -515,6 +515,8 @@ def run_grid_experiment(
             mut_path = _resolve_from_grid(mut_path)
         fai_path = _resolve_path(resume_params["fai_path"])
         fasta_path = _resolve_path(resume_params["fasta_path"])
+        dnase_map_path = resume_params.get("dnase_map_path", dnase_map_path)
+        atac_map_path = resume_params.get("atac_map_path", atac_map_path)
         timing_bigwig = _resolve_from_grid(resume_params.get("timing_bigwig"))
         dnase_bigwigs = {
             key: _resolve_path(path) for key, path in resume_params.get("dnase_bigwigs", {}).items()
@@ -593,6 +595,13 @@ def run_grid_experiment(
         tumour_filter = resume_params.get("tumour_filter", tumour_filter)
         per_sample_count = resume_params.get("per_sample_count", per_sample_count)
 
+    accessibility_prefix = "atac" if atac_map_path is not None else "dnase"
+    logger = setup_rich_logging(
+        level=logging.DEBUG if verbose else logging.INFO,
+        logger_name=f"mut_vs_{accessibility_prefix}",
+        force=True,
+    )
+
     if per_sample_count is None and (k_samples is None or n_resamples is None):
         raise ValueError("k_samples and n_resamples are required unless per_sample_count is set.")
     if per_sample_count is not None:
@@ -607,20 +616,46 @@ def run_grid_experiment(
         mut_path = _resolve_path(mut_path)
     fai_path = _resolve_path(fai_path)
     fasta_path = _resolve_path(fasta_path)
-    if dnase_map_path is not None:
-        dnase_map_path = _resolve_path(dnase_map_path)
     if timing_bigwig is not None:
         timing_bigwig = _resolve_path(timing_bigwig)
 
     if standardise_tracks and standardise_scope != "per_chrom":
         raise ValueError(f"Unsupported standardise_scope: {standardise_scope}")
 
+    if dnase_map_path is not None and atac_map_path is not None:
+        raise ValueError("Provide only one of dnase_map_path or atac_map_path.")
+
+    if dnase_bigwigs is None and dnase_map_path is None and atac_map_path is None:
+        dnase_map_path = DEFAULT_MAP_PATH
+
+    accessibility_label = "ATAC-seq" if atac_map_path is not None else "DNase-seq"
+    accessibility_map_path = atac_map_path if atac_map_path is not None else dnase_map_path
+
+    if accessibility_map_path is not None:
+        accessibility_map_path = _resolve_path(accessibility_map_path)
+        if atac_map_path is not None:
+            atac_map_path = accessibility_map_path
+        else:
+            dnase_map_path = accessibility_map_path
+    track_key = "atac_path" if atac_map_path is not None else "dnase_path"
     if dnase_bigwigs is None:
-        dnase_bigwigs, celltype_map = _load_dnase_map_path(Path(dnase_map_path))
-    elif celltype_map is None and dnase_map_path is not None:
-        _, celltype_map = _load_dnase_map_path(Path(dnase_map_path))
+        if accessibility_map_path is None:
+            raise ValueError(f"{accessibility_label} bigwigs must be provided when no map path is set.")
+        dnase_bigwigs, celltype_map = _load_dnase_map_path(
+            Path(accessibility_map_path),
+            track_key=track_key,
+            label=accessibility_label,
+        )
+    elif celltype_map is None and accessibility_map_path is not None:
+        _, celltype_map = _load_dnase_map_path(
+            Path(accessibility_map_path),
+            track_key=track_key,
+            label=accessibility_label,
+        )
     if not dnase_bigwigs:
-        raise ValueError("dnase_bigwigs must be a non-empty mapping of celltype->bigWig path.")
+        raise ValueError(
+            f"{accessibility_label} bigwigs must be a non-empty mapping of celltype->bigWig path."
+        )
 
     if tumour_filter is None and celltype_map is not None:
         mapped_filter = celltype_map.tumour_filter()
@@ -720,17 +755,17 @@ def run_grid_experiment(
     for key, path in dnase_bigwigs.items():
         celltype = str(key).strip()
         if not celltype:
-            raise ValueError("dnase_bigwigs contains an empty cell type key.")
+            raise ValueError(f"{accessibility_label} bigwigs contains an empty cell type key.")
         bw_path = Path(path)
         if not bw_path.exists():
-            raise FileNotFoundError(f"DNase bigWig not found for '{celltype}': {bw_path}")
+            raise FileNotFoundError(f"{accessibility_label} bigWig not found for '{celltype}': {bw_path}")
         chrom_lengths = get_bigwig_chrom_lengths(bw_path)
         if not chrom_lengths:
-            raise ValueError(f"DNase bigWig has no contigs: {bw_path}")
+            raise ValueError(f"{accessibility_label} bigWig has no contigs: {bw_path}")
         resolver = ContigResolver(fasta_contigs=None, bigwig_contigs=list(chrom_lengths.keys()))
         if not resolver.has_canonical_in_bigwig("chr1"):
             raise ValueError(
-                f"DNase bigWig missing canonical chr1 (or alias) for '{celltype}'. "
+                f"{accessibility_label} bigWig missing canonical chr1 (or alias) for '{celltype}'. "
                 f"Example contigs: {', '.join(sorted(chrom_lengths.keys())[:10]) or 'none'}."
             )
         normalised_dnase[celltype] = bw_path
@@ -754,7 +789,11 @@ def run_grid_experiment(
         out_dir = ensure_dir(out_dir_path)
     runs_dir = ensure_dir(out_dir / "runs")
     results_path = out_dir / "results.csv"
-    results_columns = _build_results_columns(list(dnase_bigwigs.keys()), track_strategies)
+    results_columns = _build_results_columns(
+        list(dnase_bigwigs.keys()),
+        track_strategies,
+        accessibility_prefix=accessibility_prefix,
+    )
     if not results_path.exists():
         pd.DataFrame(columns=results_columns).to_csv(results_path, index=False)
     completed_run_ids: Set[str] = set()
@@ -792,6 +831,7 @@ def run_grid_experiment(
             "fai_path": _relpath(fai_path),
             "fasta_path": _relpath(fasta_path),
             "dnase_map_path": None if dnase_map_path is None else _relpath(dnase_map_path),
+            "atac_map_path": None if atac_map_path is None else _relpath(atac_map_path),
             "dnase_bigwigs": {key: _relpath(path) for key, path in dnase_bigwigs.items()},
             "timing_bigwig": None if timing_bigwig is None else _relpath(timing_bigwig),
             "k_samples": list(k_samples),
@@ -968,7 +1008,11 @@ def run_grid_experiment(
     log_kv(logger, "mutations_bed", mut_path_display)
     log_kv(logger, "fasta", str(fasta_path))
     log_kv(logger, "fai", str(fai_path))
-    log_kv(logger, "dnase_bigwigs", ", ".join(dnase_bigwigs.keys()) if dnase_bigwigs else "none")
+    log_kv(
+        logger,
+        f"{accessibility_label} bigwigs",
+        ", ".join(dnase_bigwigs.keys()) if dnase_bigwigs else "none",
+    )
     log_kv(logger, "timing_bigwig", str(timing_bigwig) if timing_bigwig else "none")
     log_kv(logger, "tumour_filter", ",".join(tumour_filter) if tumour_filter else "none")
 
@@ -1005,8 +1049,6 @@ def run_grid_experiment(
                         chunksize=chunksize,
                         tumour_filter=tumour_filter,
                     )
-                log_kv(logger, "sample_slice", f"{slice_start}:{slice_end}")
-                log_kv(logger, "selected_samples", str(len(chosen_samples)))
                 log_kv(logger, "mutations_loaded", f"{len(muts_df):,}")
 
                 sample_id = _unique_nonempty(chosen_samples)
@@ -1058,7 +1100,6 @@ def run_grid_experiment(
                                 chunksize=chunksize,
                                 tumour_filter=tumour_filter,
                             )
-                        log_kv(logger, "sample_slice", f"{slice_start}:{slice_end}")
                     else:
                         seed_samples = base_seed + rep
                         plan = _get_sample_plan()
@@ -1071,8 +1112,6 @@ def run_grid_experiment(
                                 chunksize=chunksize,
                                 tumour_filter=tumour_filter,
                             )
-                        log_kv(logger, "sample_slice", f"{slice_start}:{slice_end}")
-                    log_kv(logger, "selected_samples", str(len(chosen_samples)))
                     log_kv(logger, "mutations_loaded", f"{len(muts_df):,}")
 
                     sample_meta = {
@@ -1453,6 +1492,7 @@ def run_grid_experiment(
                                             spearman_score_weights=spearman_score_weights,
                                             standardise_tracks=standardise_tracks,
                                             standardise_scope=standardise_scope,
+                                            accessibility_prefix=accessibility_prefix,
                                             shared=shared,
                                             pos_by_chrom=pos_by_chrom,
                                         )
@@ -1476,12 +1516,14 @@ def run_grid_experiment(
                                         chrom_row[
                                             f"spearman_local_score_negative_corr_fraction_{celltype}"
                                         ] = summ["spearman_local_score_negative_corr_fraction"]
-                                        chrom_row[f"n_bins_valid_mut_and_dnase_{celltype}"] = summ[
-                                            "n_bins_valid_mut_and_dnase"
+                                        chrom_row[f"n_bins_valid_mut_and_{accessibility_prefix}_{celltype}"] = summ[
+                                            f"n_bins_valid_mut_and_{accessibility_prefix}"
                                         ]
 
-                                    # RF feature analysis: predict mutation track from covariates + DNase tracks
-                                    feature_names = list(cov_df.columns) + [f"dnase_{ct}" for ct in celltypes]
+                                    # RF feature analysis: predict mutation track from covariates + accessibility tracks
+                                    feature_names = list(cov_df.columns) + [
+                                        f"{accessibility_prefix}_{ct}" for ct in celltypes
+                                    ]
                                     if feature_names:
                                         dnase_feature_matrix = np.column_stack([dnase_tracks[ct] for ct in celltypes])
                                         X_full = (
@@ -1506,11 +1548,16 @@ def run_grid_experiment(
                                         chrom_row["rf_feature_sign_corr_json"] = json.dumps(sign_corr)
                                         chrom_row["rf_feature_importances_json"] = json.dumps(impurity_imp)
                                         chrom_row["ridge_coef_json"] = json.dumps(ridge_coef)
-                                        dnase_perm = {k: v for k, v in perm_imp.items() if k.startswith("dnase_")}
-                                        if dnase_perm:
-                                            top_feature = max(dnase_perm.items(), key=lambda kv: kv[1])
-                                            chrom_row["rf_top_celltype_feature_perm"] = top_feature[0].replace("dnase_",
-                                                                                                               "")
+                                        acc_perm = {
+                                            k: v for k, v in perm_imp.items()
+                                            if k.startswith(f"{accessibility_prefix}_")
+                                        }
+                                        if acc_perm:
+                                            top_feature = max(acc_perm.items(), key=lambda kv: kv[1])
+                                            chrom_row["rf_top_celltype_feature_perm"] = top_feature[0].replace(
+                                                f"{accessibility_prefix}_",
+                                                "",
+                                            )
                                             chrom_row["rf_top_celltype_importance_perm"] = float(top_feature[1])
                                         else:
                                             chrom_row["rf_top_celltype_feature_perm"] = None
@@ -1537,7 +1584,7 @@ def run_grid_experiment(
                                             }
                                         )
                                         for celltype, dnase_track in dnase_tracks.items():
-                                            per_bin_df[f"dnase_{celltype}"] = dnase_track
+                                            per_bin_df[f"{accessibility_prefix}_{celltype}"] = dnase_track
                                         per_bin_df = pd.concat([per_bin_df, cov_df], axis=1)
                                         per_bin_parts.append(per_bin_df)
 
@@ -1595,7 +1642,9 @@ def run_grid_experiment(
                                 pearson_score_vals: Dict[str, float] = {}
                                 spearman_score_vals: Dict[str, float] = {}
                                 for ct in celltypes:
-                                    weights = chrom_df[f"n_bins_valid_mut_and_dnase_{ct}"].to_numpy(dtype=float)
+                                    weights = chrom_df[
+                                        f"n_bins_valid_mut_and_{accessibility_prefix}_{ct}"
+                                    ].to_numpy(dtype=float)
                                     raw = chrom_df[f"pearson_r_raw_{ct}"].to_numpy(dtype=float)
                                     lin = chrom_df[f"pearson_r_linear_resid_{ct}"].to_numpy(dtype=float)
                                     rf = chrom_df[f"pearson_r_rf_resid_{ct}"].to_numpy(dtype=float)
@@ -1724,16 +1773,27 @@ def run_grid_experiment(
                                 )
 
                                 rf_perm_means = json.loads(agg["rf_perm_importances_mean_json"])
-                                dnase_perm = {k: v for k, v in rf_perm_means.items() if k.startswith("dnase_")}
-                                if dnase_perm:
-                                    top_feature = max(dnase_perm.items(), key=lambda kv: kv[1])
-                                    agg["rf_top_celltype_feature_perm"] = top_feature[0].replace("dnase_", "")
+                                acc_perm = {
+                                    k: v for k, v in rf_perm_means.items()
+                                    if k.startswith(f"{accessibility_prefix}_")
+                                }
+                                if acc_perm:
+                                    top_feature = max(acc_perm.items(), key=lambda kv: kv[1])
+                                    agg["rf_top_celltype_feature_perm"] = top_feature[0].replace(
+                                        f"{accessibility_prefix}_",
+                                        "",
+                                    )
                                     agg["rf_top_celltype_importance_perm"] = float(top_feature[1])
                                 else:
                                     agg["rf_top_celltype_feature_perm"] = None
                                     agg["rf_top_celltype_importance_perm"] = float("nan")
 
-                                agg.update(compute_derived_fields(agg))
+                                agg.update(
+                                    compute_derived_fields(
+                                        agg,
+                                        accessibility_prefix=accessibility_prefix,
+                                    )
+                                )
                                 is_correct = agg.get("is_correct_pearson_local_score")
                                 if is_correct is True:
                                     correct_counts["true"] += 1
@@ -1887,6 +1947,7 @@ def resume_experiment(out_dir: str | Path) -> pd.DataFrame:
         fai_path=fai_path,
         fasta_path=fasta_path,
         dnase_map_path=params.get("dnase_map_path"),
+        atac_map_path=params.get("atac_map_path"),
         dnase_bigwigs=params.get("dnase_bigwigs"),
         timing_bigwig=params.get("timing_bigwig"),
         k_samples=params.get("k_samples"),

@@ -136,6 +136,13 @@ def main() -> None:
         help="Optional DNase map JSON; default resolves from project root.",
     )
     ap.add_argument(
+        "--tumours",
+        nargs="+",
+        default=None,
+        help="Optional tumour codes to keep (space- or comma-separated). "
+        "If set, DNase map is not used.",
+    )
+    ap.add_argument(
         "--min-mutations",
         type=int,
         default=100,
@@ -156,9 +163,15 @@ def main() -> None:
     else:
         out_path = Path("combined.tumour_filtered.bed")
 
-    allowed = _load_allowed_tumours(PROJECT_ROOT, args.dnase_map)
+    if args.tumours:
+        raw = []
+        for item in args.tumours:
+            raw.extend([part.strip() for part in str(item).split(",") if part.strip()])
+        allowed = {_norm_tumour(t) for t in raw if _norm_tumour(t)}
+    else:
+        allowed = _load_allowed_tumours(PROJECT_ROOT, args.dnase_map)
     if not allowed:
-        raise ValueError("No tumour types found in DNase map.")
+        raise ValueError("No tumour types provided (empty --tumours or empty DNase map).")
 
     if args.min_mutations < 1:
         raise ValueError("--min-mutations must be >= 1")

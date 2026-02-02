@@ -4,6 +4,7 @@ import json
 import re
 import sys
 from datetime import datetime
+from collections import OrderedDict
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -14,7 +15,6 @@ import pyBigWig
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS_DIR = Path(__file__).resolve().with_name("assets") / "track_visualisation"
-CONFIG_PATH = ASSETS_DIR / "track_visualisation_config.json"
 CONFIGS_PATH = ASSETS_DIR / "track_visualisation_configs.json"
 RESULTS_DIR = ASSETS_DIR / "saved_results"
 if str(ROOT) not in sys.path:
@@ -298,40 +298,49 @@ def init_state() -> None:
 
 
 def load_config() -> dict:
-    if not CONFIG_PATH.exists():
+    configs = load_named_configs()
+    if not configs:
         return {}
-    try:
-        with CONFIG_PATH.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+    first_entry = next(iter(configs.values()))
+    if isinstance(first_entry, dict):
+        params = first_entry.get("params", {})
+        return params if isinstance(params, dict) else {}
+    return {}
 
 
 def save_config(config: dict) -> None:
-    try:
-        with CONFIG_PATH.open("w", encoding="utf-8") as handle:
-            json.dump(config, handle, indent=2, sort_keys=True)
-            handle.write("\n")
-    except OSError:
+    configs = load_named_configs()
+    if not configs:
+        configs = OrderedDict()
+        configs["default"] = {"params": config}
+        save_named_configs(configs)
         return
+    first_name = next(iter(configs.keys()))
+    entry = configs.get(first_name, {})
+    if not isinstance(entry, dict):
+        entry = {}
+    entry["params"] = config
+    configs[first_name] = entry
+    save_named_configs(configs)
 
 
 def load_named_configs() -> dict[str, dict]:
     if not CONFIGS_PATH.exists():
-        return {}
+        return OrderedDict()
     try:
         with CONFIGS_PATH.open("r", encoding="utf-8") as handle:
-            raw = json.load(handle)
+            raw = json.load(handle, object_pairs_hook=OrderedDict)
     except (json.JSONDecodeError, OSError):
-        return {}
-    return raw if isinstance(raw, dict) else {}
+        return OrderedDict()
+    if isinstance(raw, dict):
+        return raw
+    return OrderedDict()
 
 
 def save_named_configs(configs: dict[str, dict]) -> None:
     try:
         with CONFIGS_PATH.open("w", encoding="utf-8") as handle:
-            json.dump(configs, handle, indent=2, sort_keys=True)
+            json.dump(configs, handle, indent=2, sort_keys=False)
             handle.write("\n")
     except OSError:
         return
@@ -432,16 +441,23 @@ def load_results_bundle(entry: dict) -> dict | None:
         dnase_tracks = entry.get("params", {}).get("dnase_tracks", [])
         dnase_tracks_data = []
         for idx, meta in enumerate(dnase_tracks):
+            raw_key = f"dnase_{idx}_raw"
+            gauss_key = f"dnase_{idx}_gauss"
+            inv_key = f"dnase_{idx}_inv"
+            exp_key = f"dnase_{idx}_exp"
+            adaptive_key = f"dnase_{idx}_adaptive"
+            if raw_key not in keys:
+                continue
             dnase_tracks_data.append(
                 {
                     "name": meta.get("name", f"dnase_{idx + 1}"),
                     "path": meta.get("path", ""),
                     "overlay": bool(meta.get("overlay", False)),
-                    "raw": data[f"dnase_{idx}_raw"],
-                    "gauss": data[f"dnase_{idx}_gauss"],
-                    "inv": data[f"dnase_{idx}_inv"],
-                    "exp": data[f"dnase_{idx}_exp"],
-                    "adaptive": data[f"dnase_{idx}_adaptive"],
+                    "raw": data[raw_key],
+                    "gauss": data[gauss_key] if gauss_key in keys else data[raw_key],
+                    "inv": data[inv_key] if inv_key in keys else data[raw_key],
+                    "exp": data[exp_key] if exp_key in keys else data[raw_key],
+                    "adaptive": data[adaptive_key] if adaptive_key in keys else data[raw_key],
                 }
             )
         results["dnase_tracks_data"] = dnase_tracks_data
@@ -481,7 +497,17 @@ def main() -> None:
         def handle_config_select() -> None:
             selected = st.session_state.get("config_select", "None")
             if selected == "None":
-                apply_config_params(load_config())
+                st.session_state["bed_path"] = ""
+                st.session_state["dnase_tracks"] = []
+                st.session_state["covariates"] = ["gc", "cpg", "timing"]
+                st.session_state["bin_size_counts_raw"] = 500_000
+                st.session_state["bin_size_counts_gauss"] = 500_000
+                st.session_state["bin_size_inv"] = 500_000
+                st.session_state["bin_size_exp"] = 500_000
+                st.session_state["bin_size_adaptive"] = 500_000
+                st.session_state["saved_results"] = None
+                st.session_state["saved_results_name"] = None
+                st.session_state["saved_results_params"] = None
                 st.session_state["last_loaded_config"] = None
                 return
             if st.session_state.get("last_loaded_config") == selected:
@@ -502,6 +528,9 @@ def main() -> None:
             key="config_select",
             on_change=handle_config_select,
         )
+        if not st.session_state.get("config_select_initialized"):
+            handle_config_select()
+            st.session_state["config_select_initialized"] = True
         config_name_input = st.text_input(
             "Config name",
             key="config_name_input",
@@ -519,16 +548,14 @@ def main() -> None:
             else:
                 st.session_state["pending_config_action"] = {"action": "save_new", "name": name}
         if update_clicked and selected_config != "None":
-            name = (config_name_input or "").strip()
-            if not name:
-                st.warning("Provide a config name before updating.")
-            elif name != selected_config and name in configs:
-                st.warning(f"Config '{name}' already exists.")
+            rename_to = (config_name_input or "").strip()
+            if rename_to and rename_to != selected_config and rename_to in configs:
+                st.warning(f"Config '{rename_to}' already exists.")
             else:
                 st.session_state["pending_config_action"] = {
                     "action": "update",
                     "name": selected_config,
-                    "rename_to": name,
+                    "rename_to": rename_to or None,
                 }
 
         st.header("Inputs")
@@ -547,15 +574,18 @@ def main() -> None:
             key="fasta_path",
             help="FASTA reference for covariate calculations (GC/CpG/trinuc).",
         )
-        st.markdown("DNase-seq tracks")
-        dnase_df = pd.DataFrame(st.session_state["dnase_tracks"])
+        st.markdown("Chromatin accessibility tracks")
+        dnase_df = pd.DataFrame(
+            st.session_state["dnase_tracks"],
+            columns=["name", "path", "overlay"],
+        )
         dnase_df = st.data_editor(
             dnase_df,
             num_rows="dynamic",
             use_container_width=True,
             column_config={
                 "name": st.column_config.TextColumn("Name", help="Label shown in plots and metrics."),
-                "path": st.column_config.TextColumn("bigWig path", help="DNase-seq bigWig file."),
+                "path": st.column_config.TextColumn("bigWig path", help="Chromatin accessibility bigWig file."),
                 "overlay": st.column_config.CheckboxColumn("Overlay", help="Show on the track plot."),
             },
             key="dnase_tracks_editor",
@@ -847,6 +877,9 @@ def main() -> None:
             help="Ignore mutations further than this distance from each bin centre.",
         )
 
+    if not bed_path:
+        st.warning("Provide a mutation BED path to load tracks.")
+        return
     if not Path(bed_path).exists():
         st.error(f"Mutation BED not found: {bed_path}")
         return
@@ -868,15 +901,21 @@ def main() -> None:
         if not path:
             continue
         if not Path(path).exists():
-            st.warning(f"DNase bigWig not found (skipping): {path}")
+            st.warning(f"Chromatin accessibility bigWig not found (skipping): {path}")
             continue
         dnase_tracks.append({"name": name, "path": path, "overlay": overlay})
+    if not dnase_tracks:
+        st.warning("Provide at least one chromatin accessibility bigWig to compute tracks.")
+        return
 
     with st.spinner("Loading inputs..."):
         mut_by_chrom = load_mutations_bed(bed_path)
         chrom_lengths = load_fai_lengths(fai_path)
 
-    available = [c for c in canonical_primary_list() if c in chrom_lengths]
+    available = [
+        c for c in canonical_primary_list()
+        if c in chrom_lengths and c not in {"chrX", "chrY"}
+    ]
     if not available:
         st.error("No canonical chromosomes found in the FAI.")
         return
@@ -1333,11 +1372,11 @@ def main() -> None:
             ax2.plot(x_inv_mb, dnase["inv"], color=color, linewidth=0.9, alpha=0.7, label=dnase["name"])
             ax3.plot(x_exp_mb, dnase["exp"], color=color, linewidth=0.9, alpha=0.7, label=dnase["name"])
             ax4.plot(x_adaptive_mb, dnase["adaptive"], color=color, linewidth=0.9, alpha=0.7, label=dnase["name"])
-        ax0.set_ylabel("DNase-seq")
-        ax1.set_ylabel("DNase-seq")
-        ax2.set_ylabel("DNase-seq")
-        ax3.set_ylabel("DNase-seq")
-        ax4.set_ylabel("DNase-seq")
+        ax0.set_ylabel("Chromatin accessibility")
+        ax1.set_ylabel("Chromatin accessibility")
+        ax2.set_ylabel("Chromatin accessibility")
+        ax3.set_ylabel("Chromatin accessibility")
+        ax4.set_ylabel("Chromatin accessibility")
         handles, labels = ax4.get_legend_handles_labels()
         if handles:
             fig.legend(
@@ -1346,7 +1385,7 @@ def main() -> None:
                 loc="lower center",
                 ncol=min(4, len(labels)),
                 fontsize=10,
-                title="DNase overlays",
+                title="Chromatin accessibility overlays",
                 title_fontsize=10,
                 frameon=False,
                 bbox_to_anchor=(0.5, 0.01),
@@ -1416,7 +1455,7 @@ def main() -> None:
             weights=spearman_score_weights,
         ).global_score
 
-    st.subheader("DNase correlations")
+    st.subheader("Chromatin accessibility correlations")
     dnase_corr_rows = []
     for dnase in dnase_tracks_win:
         corr_raw = pearsonr_nan(track_raw_win, dnase["raw"])
