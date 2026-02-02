@@ -15,10 +15,11 @@ from scripts.io_utils import ensure_dir
 from scripts.logging_utils import setup_rich_logging
 from scripts.grid_search.config import expand_grid_values
 from scripts.grid_search.io import _load_dnase_map_path
-from scripts.grid_search.runner import resume_experiment, run_grid_experiment
+from scripts.grid_search.runner import resume_experiment, run_grid_experiment, suppress_sklearn_parallel_warning
 
 
 def main() -> None:
+    suppress_sklearn_parallel_warning()
     if len(sys.argv) >= 2 and sys.argv[1] == "resume-experiment":
         if len(sys.argv) != 3:
             print("Usage: resume-experiment <experiment path>", file=sys.stderr)

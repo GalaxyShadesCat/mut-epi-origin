@@ -6,6 +6,7 @@ import json
 import logging
 import shlex
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -53,6 +54,21 @@ from scripts.logging_utils import (
 from scripts.scores import compute_local_scores
 from scripts.stats_utils import weighted_mean, zscore_nan
 from scripts.targets import dnase_mean_per_bin
+
+
+_SKLEARN_PARALLEL_WARNING = (
+    r".*sklearn\.utils\.parallel\.delayed.*sklearn\.utils\.parallel\.Parallel.*"
+)
+
+
+def suppress_sklearn_parallel_warning() -> None:
+    """Silence sklearn/joblib warning about delayed/Parallel pairing."""
+    warnings.filterwarnings(
+        "ignore",
+        message=_SKLEARN_PARALLEL_WARNING,
+        category=UserWarning,
+        module=r"sklearn\.utils\.parallel",
+    )
 
 
 def _join_csv(values: Sequence[Any]) -> str:
@@ -437,6 +453,8 @@ def run_grid_experiment(
         chunksize: int = 250_000,
         tumour_filter: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
+    suppress_sklearn_parallel_warning()
+
     def _nanmean_safe(values: np.ndarray) -> float:
         return float(np.nanmean(values)) if np.isfinite(values).any() else float("nan")
 
