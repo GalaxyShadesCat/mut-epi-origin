@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set
@@ -10,7 +11,7 @@ import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.dnase_map import DnaseCellTypeMap
+from scripts.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
 
 ASSETS_DIR = Path(__file__).resolve().with_name("assets") / "results_dashboard"
 CONFIG_PATH = ASSETS_DIR / "config.json"
@@ -73,10 +74,53 @@ METRIC_LABELS = {
 }
 
 
+def _resolve_celltype_map_source(
+    experiment_dir: Optional[Path] = None,
+) -> tuple[Optional[Path], Optional[str], str]:
+    if experiment_dir is not None:
+        candidates = [
+            ("atac", experiment_dir / "celltype_atac_map.json"),
+            ("dnase", experiment_dir / "celltype_dnase_map.json"),
+        ]
+        for kind, candidate in candidates:
+            if candidate.exists():
+                return candidate, kind, "experiment"
+    default_path = ROOT / DEFAULT_MAP_PATH
+    if default_path.exists():
+        return default_path, "dnase", "project"
+    return None, None, "missing"
+
+
+def _resolve_atac_map_path(experiment_dir: Optional[Path]) -> Optional[Path]:
+    if experiment_dir is not None:
+        candidate = experiment_dir / "celltype_atac_map.json"
+        if candidate.exists():
+            return candidate
+    return None
+
+
 @st.cache_data(show_spinner=False)
-def _load_dnase_celltype_map() -> Optional[DnaseCellTypeMap]:
+def _load_dnase_celltype_map(experiment_dir: Optional[Path] = None) -> Optional[DnaseCellTypeMap]:
+    path, kind, scope = _resolve_celltype_map_source(experiment_dir)
+    if path is None or kind is None:
+        return None
     try:
-        return DnaseCellTypeMap.from_project_root(ROOT)
+        if kind == "atac":
+            return DnaseCellTypeMap.from_json(path, track_key="atac_path")
+        if scope == "project":
+            return DnaseCellTypeMap.from_json(path, project_root=ROOT)
+        return DnaseCellTypeMap.from_json(path)
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def _load_atac_celltype_map(experiment_dir: Optional[Path] = None) -> Optional[DnaseCellTypeMap]:
+    path = _resolve_atac_map_path(experiment_dir)
+    if path is None:
+        return None
+    try:
+        return DnaseCellTypeMap.from_json(path, track_key="atac_path")
     except (OSError, ValueError, KeyError):
         return None
 
@@ -101,11 +145,73 @@ def _format_celltype_label(
     return ", ".join(labels)
 
 
+def _norm_celltype(value: str) -> str:
+    return str(value).strip().lower()
+
+
+def _infer_state_from_name(name: str) -> str:
+    match = re.search(r"\(([^)]+)\)", str(name))
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _hepatocyte_state_map(celltype_map: DnaseCellTypeMap) -> Dict[str, str]:
+    state_by_celltype: Dict[str, str] = {}
+    for entry in celltype_map.entries():
+        key_lower = _norm_celltype(entry.key)
+        name_lower = _norm_celltype(entry.name)
+        if "hepatocyte" not in key_lower and "hepatocyte" not in name_lower:
+            continue
+        state_value = getattr(entry, "state", "")
+        state = state_value.strip() if state_value else _infer_state_from_name(entry.name)
+        if not state:
+            continue
+        aliases = list(entry.aliases) if entry.aliases else []
+        for alias in [entry.key, entry.name, *aliases]:
+            norm = _norm_celltype(alias)
+            if norm:
+                state_by_celltype[norm] = state
+    return state_by_celltype
+
+
+def _canonical_state(value: str) -> str:
+    raw = str(value).strip()
+    if not raw:
+        return ""
+    upper = raw.upper()
+    if upper == "AH":
+        return "AH"
+    if upper == "AC":
+        return "AC"
+    if upper == "NORMAL":
+        return "Normal"
+    return raw
+
+
+def _state_label(state: str) -> str:
+    canonical = _canonical_state(state)
+    if canonical == "AH":
+        return "Alcoholic hepatitis (AH)"
+    if canonical == "AC":
+        return "Alcohol-associated cirrhosis (AC)"
+    if canonical == "Normal":
+        return "Normal"
+    return canonical
+
+
 def _norm_tumour_label(value: str) -> str:
     raw = str(value).strip().upper()
     if not raw:
         return ""
     return raw.split("-", 1)[0].strip()
+
+
+def _format_path_label(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def _collect_tumours_from_results(df: pd.DataFrame) -> Set[str]:
@@ -628,6 +734,206 @@ def track_metric_rankings_by_tumour(
     )
 
 
+def track_metric_rankings_by_state(
+        df: pd.DataFrame,
+        state_by_celltype: Dict[str, str],
+        weight_basis: str,
+        top_n: int = 5,
+) -> pd.DataFrame:
+    if (
+            "track_strategy" not in df.columns
+            or "correct_celltype_canon" not in df.columns
+    ):
+        return pd.DataFrame()
+    if not state_by_celltype:
+        return pd.DataFrame()
+    d = df.copy()
+    d["bin_size"] = _resolve_bin_sizes(d)
+    d = d[d["bin_size"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    if "mutations_post_downsample" in d.columns:
+        d["mutation_burden"] = pd.to_numeric(d["mutations_post_downsample"], errors="coerce")
+    else:
+        d["mutation_burden"] = pd.to_numeric(d.get("n_mutations_total", np.nan), errors="coerce")
+    d["correct_celltype"] = d["correct_celltype_canon"].astype(str).str.strip().str.lower()
+    d["state"] = d["correct_celltype"].map(state_by_celltype)
+    d = d[d["state"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+
+    rows: List[Dict[str, object]] = []
+    for metric, spec in METRICS.items():
+        is_correct_col = spec["is_correct"]
+        best_margin_col = spec["best_margin"]
+        best_value_col = spec["best_value"]
+        subset = d[
+            [
+                "state",
+                "bin_size",
+                "track_strategy",
+                "mutation_burden",
+                is_correct_col,
+                best_margin_col,
+                best_value_col,
+            ]
+        ].copy()
+        subset["is_correct"] = _coerce_bool(subset[is_correct_col]).fillna(False)
+        subset["margin"] = pd.to_numeric(subset[best_margin_col], errors="coerce")
+        if weight_basis == "metric_abs":
+            weights = _standout_weights(subset["margin"], subset[best_value_col])
+        elif weight_basis == "n_bins_total":
+            weights = pd.to_numeric(d.get("n_bins_total", np.nan), errors="coerce")
+        else:
+            weights = pd.Series(1.0, index=d.index)
+        subset["weight"] = weights.fillna(0.0).to_numpy()
+        for (state, track_strategy, bin_size), sub in subset.groupby(
+                ["state", "track_strategy", "bin_size"], dropna=False
+        ):
+            n_runs = int(len(sub))
+            n_wins = int(sub["is_correct"].sum())
+            win_rate = float(n_wins / n_runs) if n_runs else float("nan")
+            margins = sub["margin"].dropna()
+            if margins.empty:
+                continue
+            avg_burden = float(sub["mutation_burden"].dropna().mean())
+            w = sub.loc[margins.index, "weight"]
+            if w.sum() > 0:
+                avg_margin = float((margins * w).sum() / w.sum())
+            else:
+                avg_margin = float(margins.mean())
+            rows.append(
+                {
+                    "state": str(state),
+                    "bin_size": float(bin_size),
+                    "track_strategy": str(track_strategy),
+                    "metric": metric,
+                    "avg_margin": avg_margin,
+                    "n_runs": n_runs,
+                    "win_rate": win_rate,
+                    "avg_burden": avg_burden,
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+
+    drows = pd.DataFrame(rows)
+    summaries = []
+    for state, sub in drows.groupby("state"):
+        ranked = sub.sort_values(["win_rate", "avg_margin"], ascending=[False, False]).reset_index(
+            drop=True
+        )
+        ranked["rank"] = ranked.index + 1
+        ranked = ranked.head(max(top_n, 1))
+        ranked["state"] = state
+        summaries.append(ranked)
+    if not summaries:
+        return pd.DataFrame()
+    return pd.concat(summaries, ignore_index=True).sort_values(
+        ["state", "rank"]
+    )
+
+
+def track_metric_rankings_by_state_prediction(
+        df: pd.DataFrame,
+        state_by_celltype: Dict[str, str],
+        weight_basis: str,
+        top_n: int = 5,
+        metrics_to_use: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    if "track_strategy" not in df.columns:
+        return pd.DataFrame()
+    if not state_by_celltype:
+        return pd.DataFrame()
+    d = df.copy()
+    d["bin_size"] = _resolve_bin_sizes(d)
+    d = d[d["bin_size"].notna()].copy()
+    if d.empty:
+        return pd.DataFrame()
+    if "mutations_post_downsample" in d.columns:
+        d["mutation_burden"] = pd.to_numeric(d["mutations_post_downsample"], errors="coerce")
+    else:
+        d["mutation_burden"] = pd.to_numeric(d.get("n_mutations_total", np.nan), errors="coerce")
+
+    rows: List[Dict[str, object]] = []
+    metric_items = METRICS.items()
+    if metrics_to_use:
+        metric_items = [(m, METRICS[m]) for m in metrics_to_use if m in METRICS]
+    for metric, spec in metric_items:
+        best_cell_col = spec["best_cell"]
+        best_margin_col = spec["best_margin"]
+        best_value_col = spec["best_value"]
+        if best_cell_col not in d.columns:
+            continue
+        subset = d[
+            [
+                "bin_size",
+                "track_strategy",
+                "mutation_burden",
+                best_cell_col,
+                best_margin_col,
+                best_value_col,
+            ]
+        ].copy()
+        subset["pred_celltype"] = (
+            subset[best_cell_col].astype(str).str.strip().str.lower()
+        )
+        subset["state"] = subset["pred_celltype"].map(state_by_celltype).map(_canonical_state)
+        subset = subset[subset["state"].notna()].copy()
+        if subset.empty:
+            continue
+        subset["margin"] = pd.to_numeric(subset[best_margin_col], errors="coerce")
+        if weight_basis == "metric_abs":
+            weights = _standout_weights(subset["margin"], subset[best_value_col])
+        elif weight_basis == "n_bins_total":
+            weights = pd.to_numeric(d.get("n_bins_total", np.nan), errors="coerce")
+        else:
+            weights = pd.Series(1.0, index=d.index)
+        subset["weight"] = weights.fillna(0.0).to_numpy()
+        for (state, track_strategy, bin_size), sub in subset.groupby(
+                ["state", "track_strategy", "bin_size"], dropna=False
+        ):
+            n_runs = int(len(sub))
+            margins = sub["margin"].dropna()
+            if margins.empty:
+                continue
+            avg_burden = float(sub["mutation_burden"].dropna().mean())
+            w = sub.loc[margins.index, "weight"]
+            if w.sum() > 0:
+                avg_margin = float((margins * w).sum() / w.sum())
+            else:
+                avg_margin = float(margins.mean())
+            rows.append(
+                {
+                    "state": str(state),
+                    "bin_size": float(bin_size),
+                    "track_strategy": str(track_strategy),
+                    "metric": metric,
+                    "avg_margin": avg_margin,
+                    "n_runs": n_runs,
+                    "avg_burden": avg_burden,
+                }
+            )
+    if not rows:
+        return pd.DataFrame()
+
+    drows = pd.DataFrame(rows)
+    summaries = []
+    for state, sub in drows.groupby("state"):
+        ranked = sub.sort_values(["n_runs", "avg_margin"], ascending=[False, False]).reset_index(
+            drop=True
+        )
+        ranked["rank"] = ranked.index + 1
+        ranked = ranked.head(max(top_n, 1))
+        ranked["state"] = state
+        summaries.append(ranked)
+    if not summaries:
+        return pd.DataFrame()
+    return pd.concat(summaries, ignore_index=True).sort_values(
+        ["state", "rank"]
+    )
+
+
 def metric_margin_summary(df: pd.DataFrame, weight_basis: str) -> pd.DataFrame:
     rows: List[Dict[str, float]] = []
     n_runs = int(len(df))
@@ -676,6 +982,8 @@ st.title("Results Dashboard")
 st.caption("Compare metrics, margins, and accuracy for each correct cell type.")
 
 config = _load_config()
+path: Optional[Path] = None
+experiment_dir: Optional[Path] = None
 with st.sidebar:
     st.header("Load data")
     experiments = _list_experiment_results()
@@ -697,19 +1005,44 @@ with st.sidebar:
         key="experiment_name",
         on_change=_persist_config,
     )
+    is_liver_experiment = "liver" in experiment_name.lower()
     path_input = str(experiments[experiment_name])
     st.session_state["path_input"] = path_input
     if not CONFIG_PATH.exists():
         _persist_config()
 
     weight_basis = "metric_abs"
+    path = Path(path_input)
+    if not path.is_absolute():
+        path = ROOT / path
+    experiment_dir = path.parent
+    if is_liver_experiment:
+        map_path = _resolve_atac_map_path(experiment_dir)
+        if map_path is None:
+            st.warning("Cell type map (ATAC): not found")
+        else:
+            scope_label = "experiment" if map_path.parent == experiment_dir else "project default"
+            st.info(f"Cell type map: {scope_label} (ATAC)")
+            st.caption(_format_path_label(map_path))
+    else:
+        map_path, map_kind, map_scope = _resolve_celltype_map_source(experiment_dir)
+        if map_path is None or map_kind is None:
+            st.warning("Cell type map: not found")
+        else:
+            kind_label = "ATAC" if map_kind == "atac" else "DNase"
+            scope_label = "experiment" if map_scope == "experiment" else "project default"
+            st.info(f"Cell type map: {scope_label} ({kind_label})")
+            st.caption(_format_path_label(map_path))
 
-path = Path(path_input)
-if not path.is_absolute():
-    path = ROOT / path
+if path is None:
+    path = Path(path_input)
+    if not path.is_absolute():
+        path = ROOT / path
 if not path.exists():
     st.error(f"File not found: {path}")
     st.stop()
+if experiment_dir is None:
+    experiment_dir = path.parent
 df = _load_results(path)
 df = _normalize_results(df)
 missing = [col for col in _required_columns() if col not in df.columns]
@@ -790,7 +1123,7 @@ metric_keys = list(METRICS.keys())
 metric_choices = ["All"] + [metric_labels.get(m, m) for m in metric_keys]
 metric_label_to_key = {metric_labels.get(m, m): m for m in metric_keys}
 top_n_choices = ["All", 3, 5, 10]
-celltype_map = _load_dnase_celltype_map()
+celltype_map = _load_dnase_celltype_map(experiment_dir)
 tumour_options, tumour_label_to_key = _build_tumour_options(df, celltype_map)
 
 row_a, row_b = st.columns(2)
@@ -1249,6 +1582,272 @@ else:
                                         )
                                         st.altair_chart(chart, use_container_width=True)
 
+if is_liver_experiment:
+    st.subheader("Hepatocyte state breakdown")
+    atac_map = _load_atac_celltype_map(experiment_dir)
+    if atac_map is None:
+        st.info("Hepatocyte state summary unavailable: celltype_atac_map.json not found.")
+    else:
+        state_by_celltype = _hepatocyte_state_map(atac_map)
+        if not state_by_celltype:
+            st.info("Hepatocyte state summary unavailable: no hepatocyte states found.")
+        else:
+            state_controls = st.columns(3)
+            with state_controls[0]:
+                state_track_choice = st.selectbox(
+                    "Track",
+                    options=track_choices,
+                    index=0,
+                    key="state_track_choice",
+                )
+            with state_controls[1]:
+                state_metric_choice_label = st.selectbox(
+                    "Metric",
+                    options=metric_choices,
+                    index=0,
+                    key="state_metric_choice",
+                )
+            with state_controls[2]:
+                state_bin_choice = st.selectbox(
+                    "Bin size",
+                    options=bin_choices,
+                    index=0,
+                    key="state_bin_choice",
+                )
+
+            state_df = df.copy()
+            if state_track_choice != "All":
+                state_df = state_df[
+                    state_df["track_strategy"].astype(str).str.strip() == state_track_choice
+                ].copy()
+            state_df["bin_size"] = _resolve_bin_sizes(state_df)
+            if state_bin_choice != "All":
+                try:
+                    bin_value = float(state_bin_choice)
+                except ValueError:
+                    bin_value = None
+                if bin_value is not None:
+                    state_df = state_df[state_df["bin_size"] == bin_value].copy()
+            if state_df.empty:
+                st.info("Hepatocyte state summary unavailable: no runs after track filtering.")
+            else:
+                state_metric_choice = metric_label_to_key.get(state_metric_choice_label)
+                state_rows = []
+                if state_metric_choice is None:
+                    for metric, spec in METRICS.items():
+                        best_cell_col = spec["best_cell"]
+                        if best_cell_col not in state_df.columns:
+                            continue
+                        subset = state_df.copy()
+                        subset["metric_label"] = metric_labels.get(metric, metric)
+                        subset["pred_celltype"] = (
+                            subset[best_cell_col].astype(str).str.strip().str.lower()
+                        )
+                        state_rows.append(subset)
+                else:
+                    best_cell_col = METRICS[state_metric_choice]["best_cell"]
+                    if best_cell_col in state_df.columns:
+                        subset = state_df.copy()
+                        subset["metric_label"] = state_metric_choice_label
+                        subset["pred_celltype"] = (
+                            subset[best_cell_col].astype(str).str.strip().str.lower()
+                        )
+                        state_rows.append(subset)
+                if not state_rows:
+                    st.info("Hepatocyte state summary unavailable: selected metric not available.")
+                else:
+                    state_df = pd.concat(state_rows, ignore_index=True)
+                    state_df["state_raw"] = state_df["pred_celltype"].map(state_by_celltype)
+                    state_df["state"] = state_df["state_raw"].map(_canonical_state)
+                    state_df = state_df[state_df["state"].notna()].copy()
+                    state_df = state_df[state_df["state"].astype(str).str.strip() != ""].copy()
+                    if state_df.empty:
+                        st.info("Hepatocyte state summary unavailable: no hepatocyte predictions.")
+                    else:
+                        state_df["mutation_burden"], _ = _resolve_mutation_burden(state_df)
+                        total_state_samples = int(state_df["sample_id"].nunique())
+                        state_counts = (
+                            state_df["state"]
+                            .value_counts()
+                            .rename_axis("state")
+                            .reset_index(name="n_runs")
+                        )
+                        state_order = ["Normal", "AH", "AC"]
+                        state_counts["state_order"] = pd.Categorical(
+                            state_counts["state"],
+                            categories=state_order,
+                            ordered=True,
+                        )
+                        state_counts = state_counts.sort_values("state_order")
+                total_state_runs = int(state_counts["n_runs"].sum())
+                state_counts["pct"] = state_counts["n_runs"] / max(total_state_runs, 1)
+                state_counts["pct_label"] = state_counts["pct"].apply(lambda v: _format_pct(v))
+                state_counts["label"] = (
+                    state_counts["state"].map(_state_label).astype(str)
+                    + " ("
+                    + state_counts["pct_label"]
+                    + ")"
+                )
+                if alt is not None:
+                    pie = (
+                        alt.Chart(state_counts)
+                        .mark_arc(innerRadius=40)
+                        .encode(
+                            theta=alt.Theta("n_runs:Q", title="Runs"),
+                            color=alt.Color(
+                                "state:N",
+                                title="State",
+                                sort=state_order,
+                                legend=alt.Legend(
+                                    offset=36,
+                                    titlePadding=10,
+                                    labelPadding=8,
+                                    labelLimit=0,
+                                    labelExpr=(
+                                        "datum.label == 'AH' ? 'Alcoholic hepatitis (AH)' : "
+                                        "datum.label == 'AC' ? 'Alcohol-associated cirrhosis (AC)' : "
+                                        "datum.label == 'Normal' ? 'Normal' : datum.label"
+                                    )
+                                ),
+                            ),
+                            tooltip=[
+                                alt.Tooltip("state:N", title="State"),
+                                alt.Tooltip("n_runs:Q", title="Runs", format=",.0f"),
+                                alt.Tooltip("pct_label:N", title="Share"),
+                            ],
+                        )
+                        .properties(height=260)
+                    )
+                    st.altair_chart(pie, use_container_width=True)
+
+                unknown_df = df.copy()
+                if state_track_choice != "All":
+                    unknown_df = unknown_df[
+                        unknown_df["track_strategy"].astype(str).str.strip() == state_track_choice
+                    ].copy()
+                unknown_rows = []
+                if state_metric_choice is None:
+                    for metric, spec in METRICS.items():
+                        best_cell_col = spec["best_cell"]
+                        if best_cell_col not in unknown_df.columns:
+                            continue
+                        subset = unknown_df.copy()
+                        subset["metric_label"] = metric_labels.get(metric, metric)
+                        subset["pred_celltype"] = (
+                            subset[best_cell_col].astype(str).str.strip().str.lower()
+                        )
+                        unknown_rows.append(subset)
+                else:
+                    best_cell_col = METRICS[state_metric_choice]["best_cell"]
+                    if best_cell_col in unknown_df.columns:
+                        subset = unknown_df.copy()
+                        subset["metric_label"] = state_metric_choice_label
+                        subset["pred_celltype"] = (
+                            subset[best_cell_col].astype(str).str.strip().str.lower()
+                        )
+                        unknown_rows.append(subset)
+                if unknown_rows:
+                    unknown_df = pd.concat(unknown_rows, ignore_index=True)
+                    unknown_df["state"] = unknown_df["pred_celltype"].map(state_by_celltype)
+                    unknown_df = unknown_df[
+                        unknown_df["pred_celltype"].astype(str).str.strip() != ""
+                    ].copy()
+                    unknown_df = unknown_df[unknown_df["state"].isna()].copy()
+                    if not unknown_df.empty:
+                        unknown_counts = (
+                            unknown_df["pred_celltype"]
+                            .value_counts()
+                            .rename_axis("predicted_celltype")
+                            .reset_index(name="n_runs")
+                        )
+                        st.markdown("**Unknown predictions**")
+                        st.dataframe(unknown_counts, use_container_width=True)
+
+                rankings_source = df
+                if state_track_choice != "All":
+                    rankings_source = rankings_source[
+                        rankings_source["track_strategy"].astype(str).str.strip() == state_track_choice
+                    ].copy()
+                rankings_source["bin_size"] = _resolve_bin_sizes(rankings_source)
+                if state_bin_choice != "All":
+                    try:
+                        bin_value = float(state_bin_choice)
+                    except ValueError:
+                        bin_value = None
+                    if bin_value is not None:
+                        rankings_source = rankings_source[
+                            rankings_source["bin_size"] == bin_value
+                        ].copy()
+                metrics_to_use = None
+                if state_metric_choice is not None:
+                    metrics_to_use = [state_metric_choice]
+                state_rankings = track_metric_rankings_by_state_prediction(
+                    rankings_source,
+                    state_by_celltype,
+                    weight_basis,
+                    top_n=5,
+                    metrics_to_use=metrics_to_use,
+                )
+                if state_rankings.empty:
+                    st.info("State summary unavailable: no hepatocyte state predictions found.")
+                else:
+                    state_samples = (
+                        state_df[["sample_id", "state"]]
+                        .dropna()
+                        .groupby("state")["sample_id"]
+                        .nunique()
+                    )
+                    avg_burden_by_state = (
+                        state_df.groupby("state")["mutation_burden"]
+                        .mean()
+                        .fillna(float("nan"))
+                    )
+                    state_order = ["Normal", "AH", "AC"]
+                    state_rankings["state_order"] = pd.Categorical(
+                        state_rankings["state"],
+                        categories=state_order,
+                        ordered=True,
+                    )
+                    state_rankings = state_rankings.sort_values(["state_order", "state", "rank"])
+                    for state in state_order:
+                        sub_state = state_rankings[state_rankings["state"] == state]
+                        state_label = _state_label(state)
+                        avg_burden = avg_burden_by_state.get(state, float("nan"))
+                        avg_burden_label = (
+                            f"{avg_burden:,.0f}" if np.isfinite(avg_burden) else "n/a"
+                        )
+                        n_samples = int(state_samples.get(state, 0))
+                        st.markdown(
+                            f"<div class='bin-header'>State: {state_label}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown(
+                            f"<div class='section-subtitle'>Cell type: Hepatocyte · "
+                            f"Avg mutation burden: {avg_burden_label} · Samples: {n_samples} of {total_state_samples}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        if sub_state.empty:
+                            st.info("No predicted runs for this state with the current filters.")
+                            continue
+                        cols = st.columns(len(sub_state))
+                        for col, (_, row) in zip(cols, sub_state.iterrows()):
+                            avg_margin = row["avg_margin"]
+                            metric_label = metric_labels.get(row["metric"], row["metric"])
+                            bin_size = row["bin_size"]
+                            bin_label = int(bin_size) if float(bin_size).is_integer() else float(bin_size)
+                            n_runs = int(row.get("n_runs", 0))
+                            with col:
+                                st.markdown(
+                                    "<div class='section-card' style='min-height: auto; margin-bottom: 12px;'>"
+                                    f"<div class='section-kicker'>Rank {int(row['rank'])}</div>"
+                                    f"<div class='section-title'>{row['track_strategy']} + {metric_label}</div>"
+                                    f"<div class='section-metric'>Bin size: {bin_label}</div>"
+                                    f"<div class='section-metric'>Weighted avg margin: {avg_margin:.4f}</div>"
+                                    f"<div class='section-metric'>Predicted runs: {n_runs}</div>"
+                                    "</div>",
+                                    unsafe_allow_html=True,
+                                )
+
 st.subheader("Best track + metric by bin size")
 bin_rankings = track_metric_rankings_by_bin(df, weight_basis, top_n=5)
 if bin_rankings.empty:
@@ -1299,7 +1898,7 @@ else:
     tumour_samples["tumour_type"] = tumour_samples["tumour_type"].astype(str).str.strip()
     tumour_samples = tumour_samples[tumour_samples["tumour_type"] != ""]
     tumour_sample_counts = tumour_samples.groupby("tumour_type")["sample_id"].nunique()
-    celltype_map = _load_dnase_celltype_map()
+    celltype_map = _load_dnase_celltype_map(experiment_dir)
     for tumour_type, sub_tumour in tumour_rankings.groupby("tumour_type"):
         correct_celltypes = sorted(sub_tumour["correct_celltype"].dropna().unique().tolist())
         correct_celltype_label = _format_celltype_label(correct_celltypes, celltype_map)

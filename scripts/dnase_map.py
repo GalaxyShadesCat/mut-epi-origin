@@ -36,6 +36,7 @@ class DnaseCellTypeEntry:
     dnase_path: Path
     tumour_types: tuple[str, ...]
     aliases: tuple[str, ...] = ()
+    state: str = ""
 
 
 class DnaseCellTypeMap:
@@ -115,6 +116,7 @@ class DnaseCellTypeMap:
                 dnase_path = base / dnase_path
             tumour_types_raw = row.get("tumour_types") or row.get("tumor_types") or []
             aliases_raw = row.get("alias") or row.get("aliases") or []
+            state_raw = row.get("state") or ""
             if isinstance(aliases_raw, str):
                 aliases_list: Sequence[str] = [aliases_raw]
             else:
@@ -126,6 +128,7 @@ class DnaseCellTypeMap:
                     dnase_path=dnase_path,
                     tumour_types=tuple(str(t).strip() for t in tumour_types_raw if str(t).strip()),
                     aliases=tuple(str(a).strip() for a in aliases_list if str(a).strip()),
+                    state=str(state_raw).strip(),
                 )
             )
         return cls(entries)

@@ -159,6 +159,29 @@ def canonicalise_celltype(value: Any) -> Optional[str]:
     return s
 
 
+def _split_celltypes(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        parts = list(value)
+    else:
+        s = str(value).strip()
+        if not s:
+            return []
+        parts = [p.strip() for p in s.split(",")]
+    out: List[str] = []
+    seen = set()
+    for part in parts:
+        if part is None:
+            continue
+        canon = canonicalise_celltype(part)
+        if canon is None or canon in seen:
+            continue
+        seen.add(canon)
+        out.append(canon)
+    return out
+
+
 def to_number(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -208,7 +231,9 @@ def compute_derived_fields(
     *,
     accessibility_prefix: str = "dnase",
 ) -> Dict[str, Any]:
-    correct = canonicalise_celltype(row.get("correct_celltypes"))
+    correct_list = _split_celltypes(row.get("correct_celltypes"))
+    correct_set = set(correct_list)
+    correct = ",".join(correct_list) if correct_list else None
     pred_raw = canonicalise_celltype(row.get("best_celltype_raw"))
     pred_linear = canonicalise_celltype(row.get("best_celltype_linear_resid"))
     pred_rf = canonicalise_celltype(row.get("best_celltype_rf_resid"))
@@ -218,9 +243,9 @@ def compute_derived_fields(
     pred_spearman_local = canonicalise_celltype(row.get("best_celltype_spearman_local_score"))
 
     def _is_correct(pred: Optional[str]) -> Optional[bool]:
-        if correct is None or pred is None:
+        if not correct_set or pred is None:
             return None
-        return pred == correct
+        return pred in correct_set
 
     pre = to_number(row.get("mutations_pre_downsample"))
     post = to_number(row.get("mutations_post_downsample"))
