@@ -1528,6 +1528,8 @@ else:
                                         if top_n_choice == 3:
                                             row_height = 95
                                         chart_height = max(240, row_height * len(config_domain))
+                                        if len(config_domain) <= 2:
+                                            chart_height = max(chart_height, 280)
                                         chart = (
                                             alt.Chart(plot_df)
                                             .mark_rect()
@@ -1592,29 +1594,9 @@ if is_liver_experiment:
         if not state_by_celltype:
             st.info("Hepatocyte state summary unavailable: no hepatocyte states found.")
         else:
-            state_controls = st.columns(3)
-            with state_controls[0]:
-                state_track_choice = st.selectbox(
-                    "Track",
-                    options=track_choices,
-                    index=0,
-                    key="state_track_choice",
-                )
-            with state_controls[1]:
-                state_metric_choice_label = st.selectbox(
-                    "Metric",
-                    options=metric_choices,
-                    index=0,
-                    key="state_metric_choice",
-                )
-            with state_controls[2]:
-                state_bin_choice = st.selectbox(
-                    "Bin size",
-                    options=bin_choices,
-                    index=0,
-                    key="state_bin_choice",
-                )
-
+            state_track_choice = track_choice
+            state_metric_choice_label = metric_choice_label
+            state_bin_choice = bin_choice
             state_df = df.copy()
             if state_track_choice != "All":
                 state_df = state_df[
@@ -1725,6 +1707,14 @@ if is_liver_experiment:
                     unknown_df = unknown_df[
                         unknown_df["track_strategy"].astype(str).str.strip() == state_track_choice
                     ].copy()
+                unknown_df["bin_size"] = _resolve_bin_sizes(unknown_df)
+                if state_bin_choice != "All":
+                    try:
+                        bin_value = float(state_bin_choice)
+                    except ValueError:
+                        bin_value = None
+                    if bin_value is not None:
+                        unknown_df = unknown_df[unknown_df["bin_size"] == bin_value].copy()
                 unknown_rows = []
                 if state_metric_choice is None:
                     for metric, spec in METRICS.items():
