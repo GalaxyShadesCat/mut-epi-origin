@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import shlex
+import shutil
 import time
 import warnings
 from pathlib import Path
@@ -806,6 +807,27 @@ def run_grid_experiment(
         out_dir_path = _next_available_dir(out_dir_path)
         out_dir = ensure_dir(out_dir_path)
     runs_dir = ensure_dir(out_dir / "runs")
+
+    def _copy_map_to_out_dir(map_path: Optional[Path], label: str) -> Optional[Path]:
+        if map_path is None:
+            return None
+        src = Path(map_path)
+        if not src.exists():
+            raise FileNotFoundError(f"{label} map file not found: {src}")
+        dest = out_dir / src.name
+        try:
+            if src.resolve() == dest.resolve():
+                return src
+        except FileNotFoundError:
+            pass
+        shutil.copy2(src, dest)
+        return dest
+
+    if resume_params is None:
+        if dnase_map_path is not None:
+            dnase_map_path = _copy_map_to_out_dir(Path(dnase_map_path), "DNase")
+        if atac_map_path is not None:
+            atac_map_path = _copy_map_to_out_dir(Path(atac_map_path), "ATAC")
     results_path = out_dir / "results.csv"
     results_columns = _build_results_columns(
         list(dnase_bigwigs.keys()),
