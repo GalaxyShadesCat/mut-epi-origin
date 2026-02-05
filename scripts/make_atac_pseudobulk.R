@@ -4,6 +4,8 @@
 #
 # Peak-resolution bigWig tracks from ATAC peak-by-cell counts
 # - Groups: CellTypeSR × Condition
+# - Restricts to user-selected canonical cell types + required conditions
+# - Downsamples per group so all tracks use the same number of cells
 # - Genome: hg38 (native)
 # - Also produces hg19 bigWig via UCSC liftOver
 #
@@ -12,6 +14,7 @@
 # - Signal is constant within each peak interval and zero elsewhere.
 # - Uses sparse operations end-to-end to avoid densifying the peak x cell matrix.
 # - hg19 liftOver can introduce overlapping intervals; we merge overlaps with bedtools.
+# - Prints a QC summary with per-group counts and CPM sanity checks.
 #
 # Outputs:
 #   data/processed/ATAC-seq/GSE281574/hg38/<CellType>__<Condition>.bigWig
@@ -91,6 +94,20 @@ CHAIN_PATH      <- file.path(REF_LO_DIR, "hg38ToHg19.over.chain")
 # ----------------------------
 TMP_DIR <- file.path(OUT_BASE_DIR, "_tmp")
 dir.create(TMP_DIR, recursive = TRUE, showWarnings = FALSE)
+
+# ----------------------------
+# Logging
+# ----------------------------
+log_df <- data.frame(
+  group_id = character(),
+  n_cells_used = integer(),
+  total_counts = numeric(),
+  raw_mean_counts_per_cell = numeric(),
+  cpm_sum = numeric(),
+  nonzero_peaks = integer(),
+  hg19_intervals = integer(),
+  stringsAsFactors = FALSE
+)
 
 # ----------------------------
 # UCSC download URLs
@@ -174,6 +191,19 @@ meta <- liver_multiome_seurat@meta.data
 stopifnot(all(c("CellTypeSR", "Condition") %in% colnames(meta)))
 
 # ----------------------------
+# User settings: restrict cell types + enforce comparable tracks
+# ----------------------------
+
+# Cell types to include (IMPORTANT: use the canonical names produced by CELLTYPE_MAP below)
+CELLTYPES_KEEP <- c("Hepatocyte")  # e.g. c("Hepatocyte") or c("Hepatocyte","HSC")
+
+# Conditions that must be included for each kept cell type
+CONDITIONS_KEEP <- c("AC", "AH", "Normal")
+
+# Reproducible downsampling
+set.seed(1)
+
+# ----------------------------
 # Canonical CellType naming (applied BEFORE group_id)
 # ----------------------------
 CELLTYPE_MAP <- c(
@@ -188,6 +218,31 @@ meta$CellTypeSR_canon <- ifelse(
   unname(CELLTYPE_MAP[meta$CellTypeSR]),
   meta$CellTypeSR
 )
+
+# ----------------------------
+# Filter to selected cell types and required conditions
+# ----------------------------
+meta_filt <- meta[meta$CellTypeSR_canon %in% CELLTYPES_KEEP & meta$Condition %in% CONDITIONS_KEEP, , drop = FALSE]
+
+if (nrow(meta_filt) == 0) stop("Filtering removed all cells. Check CELLTYPES_KEEP and CONDITIONS_KEEP.")
+
+# ----------------------------
+# Compute target_n so all included condition tracks use the same number of cells
+# ----------------------------
+tab <- table(meta_filt$CellTypeSR_canon, meta_filt$Condition)
+
+# Ensure every selected cell type has every required condition
+missing <- which(tab[, CONDITIONS_KEEP, drop = FALSE] == 0, arr.ind = TRUE)
+if (nrow(missing) > 0) {
+  stop("Some selected cell types are missing required conditions. Table:\n", paste(capture.output(tab[, CONDITIONS_KEEP, drop = FALSE]), collapse = "\n"))
+}
+
+# Global minimum across selected cell types and required conditions
+target_n <- min(tab[, CONDITIONS_KEEP, drop = FALSE])
+
+message("Selected cell types: ", paste(CELLTYPES_KEEP, collapse = ", "))
+message("Downsampling target_n = ", target_n)
+print(tab[, CONDITIONS_KEEP, drop = FALSE])
 
 # ----------------------------
 # Get peaks + peak-by-cell counts (sparse, no densification)
@@ -255,8 +310,8 @@ if (!is.null(rownames(counts)) && all(peak_ids %in% rownames(counts))) {
 # ----------------------------
 # Grouping: CellTypeSR × Condition (use canonical names)
 # ----------------------------
-meta$group_id <- paste(meta$CellTypeSR_canon, meta$Condition, sep = "__")
-groups <- sort(unique(meta$group_id))
+meta_filt$group_id <- paste(meta_filt$CellTypeSR_canon, meta_filt$Condition, sep = "__")
+groups <- sort(unique(meta_filt$group_id))
 
 # ----------------------------
 # Core processing loop
@@ -279,8 +334,16 @@ for (grp in groups) {
     next
   }
 
-  cells_use <- rownames(meta)[meta$group_id == grp]
+  cells_use <- rownames(meta_filt)[meta_filt$group_id == grp]
   if (length(cells_use) == 0) next
+
+  # Downsample so every track uses exactly target_n cells
+  if (length(cells_use) < target_n) {
+    message("Group has fewer than target_n cells (unexpected after checks), skipping")
+    next
+  }
+  cells_use <- sample(cells_use, size = target_n, replace = FALSE)
+  n_cells_used <- length(cells_use)
 
   # Keep only cells present in the ATAC matrix
   idx <- match(cells_use, colnames(counts))
@@ -297,16 +360,26 @@ for (grp in groups) {
   peak_sum <- as.numeric(peak_sum_mat)
 
   total <- sum(peak_sum)
+  total_counts <- total
   if (total == 0) {
     message("Total ATAC counts is 0 for this group, skipping")
     next
   }
+  raw_mean_counts_per_cell <- total_counts / n_cells_used
 
   # Normalise to CPM across peaks
   scale_factor <- 1e6 / total
   peak_signal <- peak_sum * scale_factor
+  cpm_sum <- sum(peak_signal)
+  cpm_sum_print <- sprintf("%.3f", cpm_sum)
+  message("CPM sum check: ", cpm_sum_print)
+
+  if (!is.finite(cpm_sum) || abs(cpm_sum - 1e6) > 1) {
+    stop("CPM normalisation failed: sum = ", cpm_sum)
+  }
 
   nz <- which(peak_signal > 0)
+  nonzero_peaks <- length(nz)
   if (length(nz) == 0) {
     message("No non-zero peaks after aggregation, skipping")
     next
@@ -367,6 +440,22 @@ for (grp in groups) {
     shQuote(bedgraph19_merged), shQuote(HG19_SIZES_PATH), shQuote(bw19)
   ))
 
+  hg19_intervals <- as.integer(sub("\\s+.*$", "", system2("wc", c("-l", bedgraph19_merged), stdout = TRUE)))
+
+  log_df <- rbind(
+    log_df,
+    data.frame(
+      group_id = grp,
+      n_cells_used = n_cells_used,
+      total_counts = total_counts,
+      raw_mean_counts_per_cell = round(raw_mean_counts_per_cell, 1),
+      cpm_sum = cpm_sum,
+      nonzero_peaks = nonzero_peaks,
+      hg19_intervals = hg19_intervals,
+      stringsAsFactors = FALSE
+    )
+  )
+
   # Cleanup intermediates (per group)
   file.remove(
     bedgraph38,
@@ -383,5 +472,11 @@ for (grp in groups) {
 if (dir.exists(TMP_DIR)) {
   unlink(TMP_DIR, recursive = TRUE, force = TRUE)
 }
+
+# ----------------------------
+# Final QC output
+# ----------------------------
+message("\nQC summary:")
+print(log_df)
 
 message("\nAll done.")
