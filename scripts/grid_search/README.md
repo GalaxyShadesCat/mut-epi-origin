@@ -137,8 +137,72 @@ to the same command.
 python -m scripts.grid_search.cli resume-experiment outputs/experiments/<run_dir>
 ```
 
+## Post-run sample-level modelling
+
+After a grid-search run, you can build a modelling matrix and run model selection
+directly from an experiment directory:
+
+```bash
+python scripts/score_clinvar_grid.py \
+  --experiment-name <run_dir_name>
+```
+
+Important defaults in `score_clinvar_grid.py`:
+
+- target: `fibrosis_ishak_score` (regression)
+- scoring systems: `rf_resid,pearson_local_score,spearman_local_score,pearson_r_linear_resid,spearman_r_linear_resid`
+- maximum CV folds: `5` (uses `min(cv_folds, n_samples)` per group)
+- score inversion: enabled by default (because mutation-accessibility correlation is expected to be negative)
+- metadata file: `data/derived/master_sample_metadata_lihc_fibrosis.csv`
+- metadata sample column: `tumour_sample_submitter_id`
+
+Useful optional flags:
+
+- `--target fibrosis_present` for binary classification
+- `--no-invert-scores` to disable score inversion
+- `--scoring-systems <comma-list>` to restrict modelled score systems
+- `--cv-folds <N>` to reduce CV cost
+- `--allow-aggregated-results` only if your `results.csv` rows represent multiple samples
+
+This writes the following files into `outputs/experiments/<run_dir_name>/`:
+
+- `model_matrix.csv`
+- `model_scores.csv`
+- `grid_search_summary.csv`
+- `feature_importance.csv`
+
+`grid_search_summary.csv` includes:
+
+- `best_score`: best cross-validation score for the model/grid.
+- `score_gap`: `best_score - second_best_score` (larger means clearer separation).
+- `is_best_model_for_group`: selected model per `(config_id, scoring_system, feature_set, target)`
+  using best score first, then score gap as tie-break.
+
+The modelling outputs now include `feature_set`:
+
+- `full`: chromatin scores + covariates
+- `covariates_only`: baseline comparator without chromatin scores
+
+This enables direct assessment of whether chromatin adds predictive value over
+clinical covariates alone.
+
+Model hyperparameter grids used by `score_clinvar_grid.py`:
+
+- Random Forest:
+  - `n_estimators`: `[300, 800]`
+  - `max_depth`: `[3, 5, None]`
+  - `min_samples_split`: `[5, 10]`
+  - `min_samples_leaf`: `[2, 4]`
+  - `max_features`: `["sqrt"]`
+  - `bootstrap`: `[True]`
+- Ridge / RidgeClassifier:
+  - `alpha`: `[0.1, 1.0, 10.0, 100.0]`
+
 ## Common gotchas
 
 - Keep all CLI flags in the same shell command; typing a flag after the command has started does not apply it.
 - `--dnase-map-json`, `--dnase-map-path`, and `--atac-map-path` are mutually constrained; use one route per run.
 - In ranking outputs, multiple metric leaders may come from the same underlying run configuration.
+- `score_clinvar_grid.py` expects sample-level runs by default (`n_selected_samples == 1`).
+  Aggregated runs are blocked unless `--allow-aggregated-results` is explicitly set.
+- Very small sample groups can yield unstable or undefined regression CV scores (for example `R²` with tiny folds).
