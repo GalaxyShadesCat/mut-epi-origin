@@ -73,15 +73,16 @@ Each setup object supports:
 
 ## Defaults that matter
 
-Current CLI defaults are tuned for a small run:
+Current CLI defaults favour full per-sample coverage:
 
 - `--k-samples 1`
 - `--n-resamples 1`
 - `--downsample none`
+- `--per-sample-count 0` (run all samples one-at-a-time)
 
 So, without overriding these, run count is usually:
 
-`number_of_setups × number_of_downsample_targets`
+`number_of_samples × number_of_setups × number_of_downsample_targets`
 
 In grid mode, run count becomes:
 
@@ -91,7 +92,9 @@ In grid mode, run count becomes:
 
 - `--k-samples`: cohort size per run (`1`, `5`, `10`, `20`, `all`, etc.).
 - `--n-resamples`: number of repeated sample draws per `k`.
-- `--per-sample-count N`: switches to per-sample mode and runs the first `N` individual samples (`k=1` per run), instead of iterating a `k_samples` grid.
+- `--per-sample-count N`: runs the first `N` individual samples (`k=1` per run).
+- `--per-sample-count 0`: runs all samples individually (default).
+- `--per-sample-count none` (or `off`): disables per-sample mode and uses the `k_samples`/`n_resamples` grid.
 
 If you are testing configuration impact only, keep `k=1` and `n_resamples=1`.
 

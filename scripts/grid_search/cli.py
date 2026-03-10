@@ -279,9 +279,12 @@ def main() -> None:
     parser.add_argument("--save-per-bin", action="store_true", help="Save per-bin tables for inspection")
     parser.add_argument(
         "--per-sample-count",
-        type=int,
-        default=None,
-        help="Enable per-sample mode and limit to the first N samples (0 = all).",
+        type=str,
+        default="0",
+        help=(
+            "Per-sample mode sample limit (0 = all; default). "
+            "Use 'none' or 'off' to disable per-sample mode."
+        ),
     )
     parser.add_argument("--no-standardise-tracks", action="store_true", help="Disable per-chrom track standardisation")
     parser.add_argument("--standardise-scope", type=str, default="per_chrom", help="Standardisation scope")
@@ -405,6 +408,12 @@ def main() -> None:
     tumour_filter = None
     if args.tumour_filter:
         tumour_filter = [t.strip() for t in args.tumour_filter.split(",") if t.strip()]
+    per_sample_count: Optional[int]
+    per_sample_count_token = str(args.per_sample_count).strip().lower()
+    if per_sample_count_token in {"none", "null", "off"}:
+        per_sample_count = None
+    else:
+        per_sample_count = int(per_sample_count_token)
 
     dnase_bigwigs: Dict[str, str | Path]
     celltype_map: Optional[DnaseCellTypeMap] = None
@@ -463,7 +472,7 @@ def main() -> None:
         standardise_tracks=not args.no_standardise_tracks,
         standardise_scope=args.standardise_scope,
         verbose=bool(args.verbose or args.debug),
-        per_sample_count=args.per_sample_count,
+        per_sample_count=per_sample_count,
         pearson_score_window_bins=args.pearson_score_window_bins,
         pearson_score_smoothing=args.pearson_score_smoothing,
         pearson_score_smooth_param=args.pearson_score_smooth_param,
