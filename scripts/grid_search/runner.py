@@ -110,6 +110,191 @@ def _format_inv_dist_pairs(pairs: Optional[Sequence[Sequence[float | int]]]) -> 
     return ",".join(tokens)
 
 
+def _parse_covariates_value(value: Any) -> List[str]:
+    if isinstance(value, str):
+        tokens = [tok.strip() for tok in value.replace(",", "+").split("+") if tok.strip()]
+        if not tokens:
+            raise ValueError("Covariates string must not be empty.")
+        return tokens
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        tokens = [str(tok).strip() for tok in value if str(tok).strip()]
+        if not tokens:
+            raise ValueError("Covariates sequence must not be empty.")
+        return tokens
+    raise ValueError("Covariates must be a '+'-separated string or a list of feature names.")
+
+
+def _build_track_param_combos(
+    *,
+    track_strategy: str,
+    counts_gauss_sigma_grid: Sequence[float],
+    inv_dist_gauss_sigma_grid: Sequence[float],
+    inv_dist_gauss_max_distance_bp_grid: Sequence[int],
+    inv_dist_gauss_pairs: Optional[Sequence[Tuple[float, int]]],
+    exp_decay_decay_bp_grid: Sequence[int],
+    exp_decay_max_distance_bp_grid: Sequence[int],
+    exp_decay_adaptive_k_grid: Sequence[int],
+    exp_decay_adaptive_min_bandwidth_bp_grid: Sequence[int],
+    exp_decay_adaptive_max_distance_bp_grid: Sequence[int],
+) -> List[Tuple[str, Dict[str, float | int]]]:
+    if track_strategy == "counts_raw":
+        return [("raw", {})]
+    if track_strategy == "counts_gauss":
+        return [
+            (f"cs={sigma}", {"counts_sigma": float(sigma)})
+            for sigma in counts_gauss_sigma_grid
+        ]
+    if track_strategy == "inv_dist_gauss":
+        combos: List[Tuple[str, Dict[str, float | int]]] = []
+        if inv_dist_gauss_pairs:
+            for idx, pair in enumerate(inv_dist_gauss_pairs):
+                if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+                    raise ValueError(
+                        "inv_dist_gauss_pairs must be a sequence of (inv_sigma, max_distance_bp) pairs; "
+                        f"invalid entry at index {idx}: {pair!r}"
+                    )
+                sigma, md = pair
+                try:
+                    sigma_val = float(sigma)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "inv_dist_gauss_pairs inv_sigma must be float-like; "
+                        f"invalid entry at index {idx}: {sigma!r}"
+                    ) from exc
+                try:
+                    md_float = float(md)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "inv_dist_gauss_pairs max_distance_bp must be int-like; "
+                        f"invalid entry at index {idx}: {md!r}"
+                    ) from exc
+                if not md_float.is_integer():
+                    raise ValueError(
+                        "inv_dist_gauss_pairs max_distance_bp must be int-like; "
+                        f"invalid entry at index {idx}: {md!r}"
+                    )
+                md_val = int(md_float)
+                combos.append((f"is={sigma_val}_md={md_val}", {"inv_sigma": sigma_val, "max_distance_bp": md_val}))
+            return combos
+        for sigma in inv_dist_gauss_sigma_grid:
+            for md in inv_dist_gauss_max_distance_bp_grid:
+                combos.append((f"is={sigma}_md={md}", {"inv_sigma": float(sigma), "max_distance_bp": int(md)}))
+        return combos
+    if track_strategy == "exp_decay":
+        return [
+            (
+                f"decay={decay_bp}_md={md}",
+                {"exp_decay_bp": float(decay_bp), "exp_max_distance_bp": int(md)},
+            )
+            for decay_bp in exp_decay_decay_bp_grid
+            for md in exp_decay_max_distance_bp_grid
+        ]
+    if track_strategy == "exp_decay_adaptive":
+        return [
+            (
+                f"k={k_near}_minbw={min_bw}_md={md}",
+                {
+                    "adaptive_k": int(k_near),
+                    "adaptive_min_bandwidth_bp": float(min_bw),
+                    "adaptive_max_distance_bp": int(md),
+                },
+            )
+            for k_near in exp_decay_adaptive_k_grid
+            for min_bw in exp_decay_adaptive_min_bandwidth_bp_grid
+            for md in exp_decay_adaptive_max_distance_bp_grid
+        ]
+    raise ValueError(f"Unknown track_strategy: {track_strategy}")
+
+
+def _build_explicit_setups(
+    *,
+    explicit_setups: Sequence[Dict[str, Any]],
+    default_covariate_sets: Sequence[Sequence[str]],
+    default_counts_sigma: float,
+    default_inv_sigma: float,
+    default_max_distance_bp: int,
+    default_exp_decay_bp: float,
+    default_exp_max_distance_bp: int,
+    default_adaptive_k: int,
+    default_adaptive_min_bandwidth_bp: float,
+    default_adaptive_max_distance_bp: int,
+) -> List[Dict[str, Any]]:
+    if not explicit_setups:
+        raise ValueError("explicit_setups is empty.")
+    setups: List[Dict[str, Any]] = []
+    for idx, raw_setup in enumerate(explicit_setups):
+        if not isinstance(raw_setup, dict):
+            raise ValueError(f"explicit_setups[{idx}] must be a JSON object.")
+        strategy = str(raw_setup.get("track_strategy", "")).strip()
+        if not strategy:
+            raise ValueError(f"explicit_setups[{idx}] missing track_strategy.")
+        try:
+            bin_size = int(raw_setup.get("bin_size"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"explicit_setups[{idx}] bin_size must be an integer.") from exc
+        if bin_size <= 0:
+            raise ValueError(f"explicit_setups[{idx}] bin_size must be > 0.")
+
+        covariates_value = raw_setup.get("covariates")
+        if covariates_value is None:
+            covariate_sets = [list(covs) for covs in default_covariate_sets]
+        else:
+            covariate_sets = [_parse_covariates_value(covariates_value)]
+        if not covariate_sets:
+            raise ValueError(f"explicit_setups[{idx}] resolved to no covariate sets.")
+
+        param_dict: Dict[str, float | int] = {}
+        if strategy == "counts_raw":
+            param_tag = "raw"
+        elif strategy == "counts_gauss":
+            sigma = float(raw_setup.get("counts_sigma", default_counts_sigma))
+            param_dict = {"counts_sigma": sigma}
+            param_tag = f"cs={sigma}"
+        elif strategy == "inv_dist_gauss":
+            inv_sigma = float(raw_setup.get("inv_sigma", default_inv_sigma))
+            max_dist = int(raw_setup.get("max_distance_bp", default_max_distance_bp))
+            param_dict = {"inv_sigma": inv_sigma, "max_distance_bp": max_dist}
+            param_tag = f"is={inv_sigma}_md={max_dist}"
+        elif strategy == "exp_decay":
+            decay_bp = float(raw_setup.get("exp_decay_bp", default_exp_decay_bp))
+            max_dist = int(raw_setup.get("exp_max_distance_bp", default_exp_max_distance_bp))
+            param_dict = {"exp_decay_bp": decay_bp, "exp_max_distance_bp": max_dist}
+            param_tag = f"decay={decay_bp}_md={max_dist}"
+        elif strategy == "exp_decay_adaptive":
+            k_near = int(raw_setup.get("adaptive_k", default_adaptive_k))
+            min_bw = float(raw_setup.get("adaptive_min_bandwidth_bp", default_adaptive_min_bandwidth_bp))
+            max_dist = int(raw_setup.get("adaptive_max_distance_bp", default_adaptive_max_distance_bp))
+            param_dict = {
+                "adaptive_k": k_near,
+                "adaptive_min_bandwidth_bp": min_bw,
+                "adaptive_max_distance_bp": max_dist,
+            }
+            param_tag = f"k={k_near}_minbw={min_bw}_md={max_dist}"
+        else:
+            raise ValueError(
+                f"explicit_setups[{idx}] has unknown track_strategy: {strategy}. "
+                "Use one of counts_raw, counts_gauss, inv_dist_gauss, exp_decay, exp_decay_adaptive."
+            )
+
+        if "param_tag" in raw_setup:
+            override = str(raw_setup.get("param_tag", "")).strip()
+            if not override:
+                raise ValueError(f"explicit_setups[{idx}] param_tag must not be empty when provided.")
+            param_tag = override
+
+        for covs in covariate_sets:
+            setups.append(
+                {
+                    "track_strategy": strategy,
+                    "bin_size": int(bin_size),
+                    "param_tag": param_tag,
+                    "param_dict": dict(param_dict),
+                    "covariates": list(covs),
+                }
+            )
+    return setups
+
+
 def _build_cli_command(grid_params: Dict[str, Any], out_dir: Path) -> str:
     project_root = Path(__file__).resolve().parents[2]
 
@@ -162,6 +347,9 @@ def _build_cli_command(grid_params: Dict[str, Any], out_dir: Path) -> str:
     _add_arg(args, "--downsample", _format_downsample(grid_params.get("downsample_counts", [])))
     _add_arg(args, "--track-strategies", _join_csv(grid_params.get("track_strategies", [])))
     _add_arg(args, "--covariate-sets", _format_covariate_sets(grid_params.get("covariate_sets", [])))
+    explicit_setups = grid_params.get("explicit_setups")
+    if explicit_setups is not None:
+        _add_arg(args, "--explicit-setups-json", json.dumps(explicit_setups, separators=(",", ":")))
 
     _add_arg(args, "--counts-raw-bins", _join_csv(grid_params.get("counts_raw_bins", [])))
     _add_arg(args, "--counts-gauss-bins", _join_csv(grid_params.get("counts_gauss_bins", [])))
@@ -409,6 +597,7 @@ def run_grid_experiment(
         base_seed: int,
         track_strategies: List[str],
         covariate_sets: List[List[str]],
+        explicit_setups: Optional[Sequence[Dict[str, Any]]] = None,
         include_trinuc: bool = False,
         chroms: Optional[List[str]] = None,
         standardise_tracks: bool = True,
@@ -546,6 +735,7 @@ def run_grid_experiment(
         base_seed = resume_params.get("base_seed", base_seed)
         track_strategies = resume_params.get("track_strategies", track_strategies)
         covariate_sets = resume_params.get("covariate_sets", covariate_sets)
+        explicit_setups = resume_params.get("explicit_setups", explicit_setups)
         include_trinuc = resume_params.get("include_trinuc", include_trinuc)
         chroms = resume_params.get("chroms", chroms)
         standardise_tracks = resume_params.get("standardise_tracks", standardise_tracks)
@@ -718,6 +908,15 @@ def run_grid_experiment(
     )
     downsample_grid = _normalize_downsample_values(downsample_counts)
 
+    default_counts_sigma_bins = 1.0
+    default_inv_sigma_bins = 0.5
+    default_max_distance_bp = 1_000_000
+    default_exp_decay_bp = 200_000
+    default_exp_max_distance_bp = 1_000_000
+    default_adaptive_k = 5
+    default_adaptive_min_bandwidth_bp = 50_000
+    default_adaptive_max_distance_bp = 1_000_000
+
     bins_by_strategy = {
         "counts_raw": counts_raw_bins,
         "counts_gauss": counts_gauss_bins,
@@ -725,28 +924,6 @@ def run_grid_experiment(
         "exp_decay": exp_decay_bins,
         "exp_decay_adaptive": exp_decay_adaptive_bins,
     }
-    for strategy in track_strategies:
-        if not bins_by_strategy.get(strategy):
-            raise ValueError(f"{strategy} bins are empty after expansion.")
-    if "counts_gauss" in track_strategies and not counts_gauss_sigma_grid:
-        raise ValueError("counts_gauss_sigma_grid is empty after expansion.")
-    if "inv_dist_gauss" in track_strategies:
-        if not inv_dist_gauss_sigma_grid:
-            raise ValueError("inv_dist_gauss_sigma_grid is empty after expansion.")
-        if not inv_dist_gauss_max_distance_bp_grid:
-            raise ValueError("inv_dist_gauss_max_distance_bp_grid is empty after expansion.")
-    if "exp_decay" in track_strategies:
-        if not exp_decay_decay_bp_grid:
-            raise ValueError("exp_decay_decay_bp_grid is empty after expansion.")
-        if not exp_decay_max_distance_bp_grid:
-            raise ValueError("exp_decay_max_distance_bp_grid is empty after expansion.")
-    if "exp_decay_adaptive" in track_strategies:
-        if not exp_decay_adaptive_k_grid:
-            raise ValueError("exp_decay_adaptive_k_grid is empty after expansion.")
-        if not exp_decay_adaptive_min_bandwidth_bp_grid:
-            raise ValueError("exp_decay_adaptive_min_bandwidth_bp_grid is empty after expansion.")
-        if not exp_decay_adaptive_max_distance_bp_grid:
-            raise ValueError("exp_decay_adaptive_max_distance_bp_grid is empty after expansion.")
     if not downsample_grid:
         raise ValueError("downsample grid is empty after expansion.")
     for val in downsample_grid:
@@ -761,14 +938,73 @@ def run_grid_experiment(
     if len(spearman_score_weights) != 2:
         raise ValueError("spearman_score_weights must be a length-2 tuple (shape, slope).")
 
-    default_counts_sigma_bins = 1.0
-    default_inv_sigma_bins = 0.5
-    default_max_distance_bp = 1_000_000
-    default_exp_decay_bp = 200_000
-    default_exp_max_distance_bp = 1_000_000
-    default_adaptive_k = 5
-    default_adaptive_min_bandwidth_bp = 50_000
-    default_adaptive_max_distance_bp = 1_000_000
+    execution_setups: List[Dict[str, Any]] = []
+    if explicit_setups is not None:
+        execution_setups = _build_explicit_setups(
+            explicit_setups=explicit_setups,
+            default_covariate_sets=covariate_sets,
+            default_counts_sigma=default_counts_sigma_bins,
+            default_inv_sigma=default_inv_sigma_bins,
+            default_max_distance_bp=default_max_distance_bp,
+            default_exp_decay_bp=default_exp_decay_bp,
+            default_exp_max_distance_bp=default_exp_max_distance_bp,
+            default_adaptive_k=default_adaptive_k,
+            default_adaptive_min_bandwidth_bp=default_adaptive_min_bandwidth_bp,
+            default_adaptive_max_distance_bp=default_adaptive_max_distance_bp,
+        )
+        track_strategies = [setup["track_strategy"] for setup in execution_setups]
+    else:
+        for strategy in track_strategies:
+            if not bins_by_strategy.get(strategy):
+                raise ValueError(f"{strategy} bins are empty after expansion.")
+        if "counts_gauss" in track_strategies and not counts_gauss_sigma_grid:
+            raise ValueError("counts_gauss_sigma_grid is empty after expansion.")
+        if "inv_dist_gauss" in track_strategies:
+            if not inv_dist_gauss_sigma_grid:
+                raise ValueError("inv_dist_gauss_sigma_grid is empty after expansion.")
+            if not inv_dist_gauss_max_distance_bp_grid:
+                raise ValueError("inv_dist_gauss_max_distance_bp_grid is empty after expansion.")
+        if "exp_decay" in track_strategies:
+            if not exp_decay_decay_bp_grid:
+                raise ValueError("exp_decay_decay_bp_grid is empty after expansion.")
+            if not exp_decay_max_distance_bp_grid:
+                raise ValueError("exp_decay_max_distance_bp_grid is empty after expansion.")
+        if "exp_decay_adaptive" in track_strategies:
+            if not exp_decay_adaptive_k_grid:
+                raise ValueError("exp_decay_adaptive_k_grid is empty after expansion.")
+            if not exp_decay_adaptive_min_bandwidth_bp_grid:
+                raise ValueError("exp_decay_adaptive_min_bandwidth_bp_grid is empty after expansion.")
+            if not exp_decay_adaptive_max_distance_bp_grid:
+                raise ValueError("exp_decay_adaptive_max_distance_bp_grid is empty after expansion.")
+
+        for track_strategy in track_strategies:
+            for bin_size in bins_by_strategy[track_strategy]:
+                track_param_combos = _build_track_param_combos(
+                    track_strategy=track_strategy,
+                    counts_gauss_sigma_grid=counts_gauss_sigma_grid,
+                    inv_dist_gauss_sigma_grid=inv_dist_gauss_sigma_grid,
+                    inv_dist_gauss_max_distance_bp_grid=inv_dist_gauss_max_distance_bp_grid,
+                    inv_dist_gauss_pairs=inv_dist_gauss_pairs,
+                    exp_decay_decay_bp_grid=exp_decay_decay_bp_grid,
+                    exp_decay_max_distance_bp_grid=exp_decay_max_distance_bp_grid,
+                    exp_decay_adaptive_k_grid=exp_decay_adaptive_k_grid,
+                    exp_decay_adaptive_min_bandwidth_bp_grid=exp_decay_adaptive_min_bandwidth_bp_grid,
+                    exp_decay_adaptive_max_distance_bp_grid=exp_decay_adaptive_max_distance_bp_grid,
+                )
+                for param_tag, param_dict in track_param_combos:
+                    for covs in covariate_sets:
+                        execution_setups.append(
+                            {
+                                "track_strategy": track_strategy,
+                                "bin_size": int(bin_size),
+                                "param_tag": param_tag,
+                                "param_dict": dict(param_dict),
+                                "covariates": list(covs),
+                            }
+                        )
+    if not execution_setups:
+        raise ValueError("No execution setups were generated.")
+    track_strategies = list(dict.fromkeys(str(setup["track_strategy"]) for setup in execution_setups))
 
     normalised_dnase: Dict[str, Path] = {}
     for key, path in dnase_bigwigs.items():
@@ -879,6 +1115,7 @@ def run_grid_experiment(
             "base_seed": int(base_seed),
             "track_strategies": list(track_strategies),
             "covariate_sets": covariate_sets,
+            "explicit_setups": None if explicit_setups is None else list(explicit_setups),
             "include_trinuc": bool(include_trinuc),
             "chroms": None if chroms is None else list(chroms),
             "standardise_tracks": bool(standardise_tracks),
@@ -940,28 +1177,7 @@ def run_grid_experiment(
 
     fai = load_fai(fai_path)
     chrom_infos = list(iter_chroms(fai, chroms=chroms))
-    track_combo_count = 0
-    for strategy in track_strategies:
-        if strategy == "counts_raw":
-            combos = 1
-        elif strategy == "counts_gauss":
-            combos = len(counts_gauss_sigma_grid)
-        elif strategy == "inv_dist_gauss":
-            if inv_dist_gauss_pairs:
-                combos = len(inv_dist_gauss_pairs)
-            else:
-                combos = len(inv_dist_gauss_sigma_grid) * len(inv_dist_gauss_max_distance_bp_grid)
-        elif strategy == "exp_decay":
-            combos = len(exp_decay_decay_bp_grid) * len(exp_decay_max_distance_bp_grid)
-        elif strategy == "exp_decay_adaptive":
-            combos = (
-                    len(exp_decay_adaptive_k_grid)
-                    * len(exp_decay_adaptive_min_bandwidth_bp_grid)
-                    * len(exp_decay_adaptive_max_distance_bp_grid)
-            )
-        else:
-            raise ValueError(f"Unknown track_strategy: {strategy}")
-        track_combo_count += combos * len(bins_by_strategy[strategy])
+    track_combo_count = len(execution_setups)
 
     rows: List[Dict[str, Any]] = []
     correct_counts = {"true": 0, "false": 0, "none": 0}
@@ -1025,9 +1241,8 @@ def run_grid_experiment(
                 len(per_sample_keys)
                 * int(track_combo_count)
                 * len(downsample_grid)
-                * len(covariate_sets)
         )
-        expected_runs_per_sample = int(track_combo_count) * len(downsample_grid) * len(covariate_sets)
+        expected_runs_per_sample = int(track_combo_count) * len(downsample_grid)
         total_runs = per_sample_expected_runs
     else:
         total_runs = (
@@ -1035,7 +1250,6 @@ def run_grid_experiment(
                 * int(n_resamples)
                 * int(track_combo_count)
                 * len(downsample_grid)
-                * len(covariate_sets)
         )
         expected_runs_per_sample = None
 
@@ -1194,746 +1408,674 @@ def run_grid_experiment(
                     "downsample_target",
                     "none" if downsample_target is None else str(downsample_target),
                 )
-                for track_strategy in track_strategies:
-                    for bin_size in bins_by_strategy[track_strategy]:
-                        if track_strategy == "counts_raw":
-                            track_param_combos = [("raw", {})]
-                        elif track_strategy == "counts_gauss":
-                            track_param_combos = []
-                            for sigma in counts_gauss_sigma_grid:
-                                track_param_combos.append((
-                                    f"cs={sigma}",
-                                    {"counts_sigma": float(sigma)},
-                                ))
+                for setup in execution_setups:
+                    track_strategy = str(setup["track_strategy"])
+                    bin_size = int(setup["bin_size"])
+                    param_tag = str(setup["param_tag"])
+                    param_dict = dict(setup["param_dict"])
+                    covs = list(setup["covariates"])
+                    counts_sigma_bins_run = float(default_counts_sigma_bins)
+                    inv_sigma_bins_run = float(default_inv_sigma_bins)
+                    max_distance_bp_run = int(default_max_distance_bp)
+                    exp_decay_bp_run = float(default_exp_decay_bp)
+                    exp_max_distance_bp_run = int(default_exp_max_distance_bp)
+                    adaptive_k_run = int(default_adaptive_k)
+                    adaptive_min_bandwidth_bp_run = float(default_adaptive_min_bandwidth_bp)
+                    adaptive_max_distance_bp_run = int(default_adaptive_max_distance_bp)
+
+                    if track_strategy == "counts_gauss":
+                        counts_sigma_bins_run = sigma_to_bins(
+                            param_dict["counts_sigma"],
+                            bin_size,
+                            counts_gauss_sigma_units,
+                        )
+
+                    if track_strategy == "inv_dist_gauss":
+                        inv_sigma_bins_run = sigma_to_bins(
+                            param_dict["inv_sigma"],
+                            bin_size,
+                            inv_dist_gauss_sigma_units,
+                        )
+                        max_distance_bp_run = int(param_dict["max_distance_bp"])
+                    if track_strategy == "exp_decay":
+                        exp_decay_bp_run = float(param_dict["exp_decay_bp"])
+                        exp_max_distance_bp_run = int(param_dict["exp_max_distance_bp"])
+                    if track_strategy == "exp_decay_adaptive":
+                        adaptive_k_run = int(param_dict["adaptive_k"])
+                        adaptive_min_bandwidth_bp_run = float(param_dict["adaptive_min_bandwidth_bp"])
+                        adaptive_max_distance_bp_run = int(param_dict["adaptive_max_distance_bp"])
+
+                    sigma_units_for_track = ""
+                    if track_strategy == "counts_gauss":
+                        sigma_units_for_track = counts_gauss_sigma_units
+                    elif track_strategy == "inv_dist_gauss":
+                        sigma_units_for_track = inv_dist_gauss_sigma_units
+                    prefixed_params = _prefixed_track_params(
+                        track_strategy=track_strategy,
+                        bin_size=int(bin_size),
+                        counts_sigma_bins_run=float(counts_sigma_bins_run),
+                        inv_sigma_bins_run=float(inv_sigma_bins_run),
+                        max_distance_bp_run=int(max_distance_bp_run),
+                        exp_decay_bp_run=float(exp_decay_bp_run),
+                        exp_max_distance_bp_run=int(exp_max_distance_bp_run),
+                        adaptive_k_run=int(adaptive_k_run),
+                        adaptive_min_bandwidth_bp_run=float(adaptive_min_bandwidth_bp_run),
+                        adaptive_max_distance_bp_run=int(adaptive_max_distance_bp_run),
+                        sigma_units=str(sigma_units_for_track),
+                    )
+
+                    logger.info(
+                        "config bin=%d track=%s covs=%s",
+                        int(bin_size),
+                        track_strategy,
+                        "-".join(covs) if covs else "none",
+                    )
+                    ds_tag = "ds=none" if downsample_target is None else f"ds={downsample_target}"
+                    bin_tag = f"{track_strategy}_bin={bin_size}"
+                    sample_tag = sample_meta.get("sample_tag")
+                    sample_tag_part = f"sample={sample_tag}" if sample_tag else None
+                    if track_strategy == "counts_raw":
+                        parts = [
+                            f"k={sample_meta['sample_size_k']}",
+                            f"rep={rep}",
+                            f"seed={seed_samples}",
+                        ]
+                        if sample_tag_part:
+                            parts.append(sample_tag_part)
+                        parts.append(ds_tag)
+                        parts.append(bin_tag)
+                        parts.append(f"track={track_strategy}")
+                        parts.append(f"covs={'-'.join(covs) if covs else 'none'}")
+                        parts.append(f"tri={int(include_trinuc)}")
+                        run_id = (
+                            "__".join(parts)
+                        )
+                    else:
+                        if track_strategy == "counts_gauss":
+                            unit_tag = counts_gauss_sigma_units
                         elif track_strategy == "inv_dist_gauss":
-                            track_param_combos = []
-                            if inv_dist_gauss_pairs:
-                                for idx, pair in enumerate(inv_dist_gauss_pairs):
-                                    if not isinstance(pair, (tuple, list)) or len(pair) != 2:
-                                        raise ValueError(
-                                            "inv_dist_gauss_pairs must be a sequence of (inv_sigma, max_distance_bp) pairs; "
-                                            f"invalid entry at index {idx}: {pair!r}"
-                                        )
-                                    sigma, md = pair
-                                    try:
-                                        sigma_val = float(sigma)
-                                    except (TypeError, ValueError) as exc:
-                                        raise ValueError(
-                                            "inv_dist_gauss_pairs inv_sigma must be float-like; "
-                                            f"invalid entry at index {idx}: {sigma!r}"
-                                        ) from exc
-                                    try:
-                                        md_float = float(md)
-                                    except (TypeError, ValueError) as exc:
-                                        raise ValueError(
-                                            "inv_dist_gauss_pairs max_distance_bp must be int-like; "
-                                            f"invalid entry at index {idx}: {md!r}"
-                                        ) from exc
-                                    if not md_float.is_integer():
-                                        raise ValueError(
-                                            "inv_dist_gauss_pairs max_distance_bp must be int-like; "
-                                            f"invalid entry at index {idx}: {md!r}"
-                                        )
-                                    md_val = int(md_float)
-                                    track_param_combos.append((
-                                        f"is={sigma_val}_md={md_val}",
-                                        {"inv_sigma": sigma_val, "max_distance_bp": md_val},
-                                    ))
-                            else:
-                                for sigma in inv_dist_gauss_sigma_grid:
-                                    for md in inv_dist_gauss_max_distance_bp_grid:
-                                        track_param_combos.append((
-                                            f"is={sigma}_md={md}",
-                                            {"inv_sigma": float(sigma), "max_distance_bp": int(md)},
-                                        ))
-                        elif track_strategy == "exp_decay":
-                            track_param_combos = []
-                            for decay_bp in exp_decay_decay_bp_grid:
-                                for md in exp_decay_max_distance_bp_grid:
-                                    track_param_combos.append((
-                                        f"decay={decay_bp}_md={md}",
-                                        {"exp_decay_bp": float(decay_bp), "exp_max_distance_bp": int(md)},
-                                    ))
-                        elif track_strategy == "exp_decay_adaptive":
-                            track_param_combos = []
-                            for k_near in exp_decay_adaptive_k_grid:
-                                for min_bw in exp_decay_adaptive_min_bandwidth_bp_grid:
-                                    for md in exp_decay_adaptive_max_distance_bp_grid:
-                                        track_param_combos.append((
-                                            f"k={k_near}_minbw={min_bw}_md={md}",
-                                            {
-                                                "adaptive_k": int(k_near),
-                                                "adaptive_min_bandwidth_bp": float(min_bw),
-                                                "adaptive_max_distance_bp": int(md),
-                                            },
-                                        ))
+                            unit_tag = inv_dist_gauss_sigma_units
                         else:
-                            raise ValueError(f"Unknown track_strategy: {track_strategy}")
+                            unit_tag = "bp"
+                        parts = [
+                            f"k={sample_meta['sample_size_k']}",
+                            f"rep={rep}",
+                            f"seed={seed_samples}",
+                        ]
+                        if sample_tag_part:
+                            parts.append(sample_tag_part)
+                        parts.append(ds_tag)
+                        parts.append(bin_tag)
+                        parts.append(f"track={track_strategy}")
+                        parts.append(param_tag)
+                        parts.append(f"u={unit_tag}")
+                        parts.append(f"covs={'-'.join(covs) if covs else 'none'}")
+                        parts.append(f"tri={int(include_trinuc)}")
+                        run_id = (
+                            "__".join(parts)
+                        )
+                    if run_id in completed_run_ids:
+                        logger.info("Skipping completed run %s", run_id)
+                        continue
+                    t0 = time.perf_counter()
+                    run_dir = ensure_dir(runs_dir / run_id)
+                    celltypes = list(dnase_bigwigs.keys())
+                    run_counter += 1
+                    log_section(logger, f"Run start [{run_counter}/{total_runs}]")
+                    log_kv(logger, "id", run_id)
+                    log_kv(
+                        logger,
+                        "standardise",
+                        f"{standardise_scope} ({'on' if standardise_tracks else 'off'})",
+                    )
+                    log_kv(logger, "celltypes", ", ".join(celltypes))
+                    log_kv(logger, "rf_seed", str(rf_seed))
+                    run_start = time.perf_counter()
 
-                        for param_tag, param_dict in track_param_combos:
-                            for covs in covariate_sets:
-                                counts_sigma_bins_run = float(default_counts_sigma_bins)
-                                inv_sigma_bins_run = float(default_inv_sigma_bins)
-                                max_distance_bp_run = int(default_max_distance_bp)
-                                exp_decay_bp_run = float(default_exp_decay_bp)
-                                exp_max_distance_bp_run = int(default_exp_max_distance_bp)
-                                adaptive_k_run = int(default_adaptive_k)
-                                adaptive_min_bandwidth_bp_run = float(default_adaptive_min_bandwidth_bp)
-                                adaptive_max_distance_bp_run = int(default_adaptive_max_distance_bp)
+                    # save config for this run
+                    cfg = {
+                        "mut_path": str(mut_path),
+                        "fai_path": str(fai_path),
+                        "fasta_path": str(fasta_path),
+                        "dnase_bigwigs": {k: str(v) for k, v in dnase_bigwigs.items()},
+                        "timing_bigwig": None if timing_bigwig is None else str(timing_bigwig),
+                        "sample_meta": sample_meta,
+                        "downsample_target": None if downsample_target is None else int(downsample_target),
+                        "mutations_pre_downsample": int(len(muts_df)),
+                        "mutations_post_downsample": int(len(muts_df_run)),
+                        "track_strategy": track_strategy,
+                        "track_param_tag": param_tag,
+                        "covariates": covs,
+                        "include_trinuc": bool(include_trinuc),
+                        "standardise_tracks": bool(standardise_tracks),
+                        "standardise_scope": str(standardise_scope),
+                        "pearson_score_window_bins": int(pearson_score_window_bins),
+                        "pearson_score_smoothing": str(pearson_score_smoothing),
+                        "pearson_score_smooth_param": None
+                        if pearson_score_smooth_param is None
+                        else float(pearson_score_smooth_param),
+                        "pearson_score_transform": str(pearson_score_transform),
+                        "pearson_score_zscore": bool(pearson_score_zscore),
+                        "pearson_score_weights": [
+                            float(pearson_score_weights[0]),
+                            float(pearson_score_weights[1]),
+                        ],
+                        "spearman_score_window_bins": int(spearman_score_window_bins),
+                        "spearman_score_smoothing": str(spearman_score_smoothing),
+                        "spearman_score_smooth_param": None
+                        if spearman_score_smooth_param is None
+                        else float(spearman_score_smooth_param),
+                        "spearman_score_transform": str(spearman_score_transform),
+                        "spearman_score_zscore": bool(spearman_score_zscore),
+                        "spearman_score_weights": [
+                            float(spearman_score_weights[0]),
+                            float(spearman_score_weights[1]),
+                        ],
+                        **prefixed_params,
+                        "counts_gauss_sigma_grid": list(map(float, counts_gauss_sigma_grid)),
+                        "inv_dist_gauss_sigma_grid": list(map(float, inv_dist_gauss_sigma_grid)),
+                        "inv_dist_gauss_max_distance_bp_grid": list(
+                            map(int, inv_dist_gauss_max_distance_bp_grid)),
+                        "inv_dist_gauss_pairs": list(inv_dist_gauss_pairs) if inv_dist_gauss_pairs else [],
+                        "exp_decay_decay_bp_grid": list(map(float, exp_decay_decay_bp_grid)),
+                        "exp_decay_max_distance_bp_grid": list(map(int, exp_decay_max_distance_bp_grid)),
+                        "exp_decay_adaptive_k_grid": list(map(int, exp_decay_adaptive_k_grid)),
+                        "exp_decay_adaptive_min_bandwidth_bp_grid": list(
+                            map(float, exp_decay_adaptive_min_bandwidth_bp_grid)),
+                        "exp_decay_adaptive_max_distance_bp_grid": list(
+                            map(int, exp_decay_adaptive_max_distance_bp_grid)),
+                        "rf_seed": int(rf_seed),
+                        "chroms": [ci.chrom for ci in chrom_infos],
+                        "tumour_filter": list(tumour_filter) if tumour_filter else [],
+                    }
+                    save_json(cfg, run_dir / "config.json")
 
-                                if track_strategy == "counts_gauss":
-                                    counts_sigma_bins_run = sigma_to_bins(
-                                        param_dict["counts_sigma"],
-                                        bin_size,
-                                        counts_gauss_sigma_units,
-                                    )
+                    # run per-chrom and aggregate metrics
+                    chrom_summaries = []
+                    per_bin_parts = []
+                    for i, ci in enumerate(chrom_infos, start=1):
+                        progress_line(
+                            logger,
+                            i=i,
+                            total=len(chrom_infos),
+                            run_start=run_start,
+                            every=5,
+                        )
+                        shared = build_shared_inputs(
+                            pos_by_chrom=pos_by_chrom,
+                            chrom=ci.chrom,
+                            chrom_length=ci.length,
+                            bin_size=bin_size,
+                            track_strategy=track_strategy,
+                            counts_sigma_bins=counts_sigma_bins_run,
+                            inv_sigma_bins=inv_sigma_bins_run,
+                            max_distance_bp=max_distance_bp_run,
+                            exp_decay_bp=exp_decay_bp_run,
+                            exp_max_distance_bp=exp_max_distance_bp_run,
+                            adaptive_k=adaptive_k_run,
+                            adaptive_min_bandwidth_bp=adaptive_min_bandwidth_bp_run,
+                            adaptive_max_distance_bp=adaptive_max_distance_bp_run,
+                            covariates=covs,
+                            fasta_path=fasta_path,
+                            timing_bigwig=timing_bigwig,
+                            include_trinuc=include_trinuc,
+                        )
 
-                                if track_strategy == "inv_dist_gauss":
-                                    inv_sigma_bins_run = sigma_to_bins(
-                                        param_dict["inv_sigma"],
-                                        bin_size,
-                                        inv_dist_gauss_sigma_units,
-                                    )
-                                    max_distance_bp_run = int(param_dict["max_distance_bp"])
-                                if track_strategy == "exp_decay":
-                                    exp_decay_bp_run = float(param_dict["exp_decay_bp"])
-                                    exp_max_distance_bp_run = int(param_dict["exp_max_distance_bp"])
-                                if track_strategy == "exp_decay_adaptive":
-                                    adaptive_k_run = int(param_dict["adaptive_k"])
-                                    adaptive_min_bandwidth_bp_run = float(param_dict["adaptive_min_bandwidth_bp"])
-                                    adaptive_max_distance_bp_run = int(param_dict["adaptive_max_distance_bp"])
+                        edges = shared["edges"]
+                        centres = shared["centres"]
+                        mut_track = shared["mut_track"]
+                        cov_df = shared["cov_df"]
 
-                                sigma_units_for_track = ""
-                                if track_strategy == "counts_gauss":
-                                    sigma_units_for_track = counts_gauss_sigma_units
-                                elif track_strategy == "inv_dist_gauss":
-                                    sigma_units_for_track = inv_dist_gauss_sigma_units
-                                prefixed_params = _prefixed_track_params(
-                                    track_strategy=track_strategy,
-                                    bin_size=int(bin_size),
-                                    counts_sigma_bins_run=float(counts_sigma_bins_run),
-                                    inv_sigma_bins_run=float(inv_sigma_bins_run),
-                                    max_distance_bp_run=int(max_distance_bp_run),
-                                    exp_decay_bp_run=float(exp_decay_bp_run),
-                                    exp_max_distance_bp_run=int(exp_max_distance_bp_run),
-                                    adaptive_k_run=int(adaptive_k_run),
-                                    adaptive_min_bandwidth_bp_run=float(adaptive_min_bandwidth_bp_run),
-                                    adaptive_max_distance_bp_run=int(adaptive_max_distance_bp_run),
-                                    sigma_units=str(sigma_units_for_track),
+                        chrom_row: Dict[str, Any] = {
+                            "chrom": ci.chrom,
+                            "track_strategy": track_strategy,
+                            "n_bins": int(len(edges) - 1),
+                            "n_mutations_chr": int(shared["mut_pos"].size),
+                            "covariates": ",".join(covs) if covs else "",
+                            "include_trinuc": bool(include_trinuc),
+                            **prefixed_params,
+                        }
+
+                        dnase_tracks: Dict[str, np.ndarray] = {}
+
+                        for celltype in celltypes:
+                            summ, dnase_track = run_one_config(
+                                muts_df=muts_df_run,
+                                chrom=ci.chrom,
+                                chrom_length=ci.length,
+                                bin_size=bin_size,
+                                track_strategy=track_strategy,
+                                counts_sigma_bins=counts_sigma_bins_run,
+                                inv_sigma_bins=inv_sigma_bins_run,
+                                max_distance_bp=max_distance_bp_run,
+                                exp_decay_bp=exp_decay_bp_run,
+                                exp_max_distance_bp=exp_max_distance_bp_run,
+                                adaptive_k=adaptive_k_run,
+                                adaptive_min_bandwidth_bp=adaptive_min_bandwidth_bp_run,
+                                adaptive_max_distance_bp=adaptive_max_distance_bp_run,
+                                dnase_bigwig=dnase_bigwigs[celltype],
+                                celltype=celltype,
+                                covariates=covs,
+                                fasta_path=fasta_path,
+                                timing_bigwig=timing_bigwig,
+                                include_trinuc=include_trinuc,
+                                rf_seed=rf_seed,
+                                pearson_score_window_bins=pearson_score_window_bins,
+                                pearson_score_smoothing=pearson_score_smoothing,
+                                pearson_score_smooth_param=pearson_score_smooth_param,
+                                pearson_score_transform=pearson_score_transform,
+                                pearson_score_zscore=pearson_score_zscore,
+                                pearson_score_weights=pearson_score_weights,
+                                spearman_score_window_bins=spearman_score_window_bins,
+                                spearman_score_smoothing=spearman_score_smoothing,
+                                spearman_score_smooth_param=spearman_score_smooth_param,
+                                spearman_score_transform=spearman_score_transform,
+                                spearman_score_zscore=spearman_score_zscore,
+                                spearman_score_weights=spearman_score_weights,
+                                standardise_tracks=standardise_tracks,
+                                standardise_scope=standardise_scope,
+                                accessibility_prefix=accessibility_prefix,
+                                shared=shared,
+                                pos_by_chrom=pos_by_chrom,
+                            )
+                            dnase_tracks[celltype] = dnase_track
+                            chrom_row[f"pearson_r_raw_{celltype}"] = summ["pearson_r_raw"]
+                            chrom_row[f"pearson_r_linear_resid_{celltype}"] = summ["pearson_r_linear_resid"]
+                            chrom_row[f"pearson_r_rf_resid_{celltype}"] = summ["pearson_r_rf_resid"]
+                            chrom_row[f"spearman_r_raw_{celltype}"] = summ["spearman_r_raw"]
+                            chrom_row[f"spearman_r_linear_resid_{celltype}"] = summ[
+                                "spearman_r_linear_resid"
+                            ]
+                            chrom_row[f"pearson_local_score_global_{celltype}"] = summ[
+                                "pearson_local_score_global"
+                            ]
+                            chrom_row[
+                                f"pearson_local_score_negative_corr_fraction_{celltype}"
+                            ] = summ["pearson_local_score_negative_corr_fraction"]
+                            chrom_row[f"spearman_local_score_global_{celltype}"] = summ[
+                                "spearman_local_score_global"
+                            ]
+                            chrom_row[
+                                f"spearman_local_score_negative_corr_fraction_{celltype}"
+                            ] = summ["spearman_local_score_negative_corr_fraction"]
+                            chrom_row[f"n_bins_valid_mut_and_{accessibility_prefix}_{celltype}"] = summ[
+                                f"n_bins_valid_mut_and_{accessibility_prefix}"
+                            ]
+
+                        # RF feature analysis: predict mutation track from covariates + accessibility tracks
+                        feature_names = list(cov_df.columns) + [
+                            f"{accessibility_prefix}_{ct}" for ct in celltypes
+                        ]
+                        if feature_names:
+                            dnase_feature_matrix = np.column_stack([dnase_tracks[ct] for ct in celltypes])
+                            X_full = (
+                                np.column_stack([cov_df.to_numpy(dtype=float), dnase_feature_matrix])
+                                if cov_df.shape[1]
+                                else dnase_feature_matrix
+                            )
+                            mut_track_rf = zscore_nan(mut_track) if standardise_tracks else mut_track
+                            perm_imp, sign_corr, impurity_imp, rf_r2, ridge_coef, ridge_r2 = (
+                                rf_feature_analysis(
+                                    mut_track_rf,
+                                    X_full,
+                                    feature_names,
+                                    seed=rf_seed,
                                 )
-
-                                logger.info(
-                                    "config bin=%d track=%s covs=%s",
-                                    int(bin_size),
-                                    track_strategy,
-                                    "-".join(covs) if covs else "none",
+                            )
+                            mask_rf = np.isfinite(mut_track_rf) & np.all(np.isfinite(X_full), axis=1)
+                            chrom_row["n_bins_valid_rf_features"] = int(mask_rf.sum())
+                            chrom_row["rf_r2"] = float(rf_r2)
+                            chrom_row["ridge_r2"] = float(ridge_r2)
+                            chrom_row["rf_perm_importances_json"] = json.dumps(perm_imp)
+                            chrom_row["rf_feature_sign_corr_json"] = json.dumps(sign_corr)
+                            chrom_row["rf_feature_importances_json"] = json.dumps(impurity_imp)
+                            chrom_row["ridge_coef_json"] = json.dumps(ridge_coef)
+                            acc_perm = {
+                                k: v for k, v in perm_imp.items()
+                                if k.startswith(f"{accessibility_prefix}_")
+                            }
+                            if acc_perm:
+                                top_feature = max(acc_perm.items(), key=lambda kv: kv[1])
+                                chrom_row["rf_top_celltype_feature_perm"] = top_feature[0].replace(
+                                    f"{accessibility_prefix}_",
+                                    "",
                                 )
-                                ds_tag = "ds=none" if downsample_target is None else f"ds={downsample_target}"
-                                bin_tag = f"{track_strategy}_bin={bin_size}"
-                                sample_tag = sample_meta.get("sample_tag")
-                                sample_tag_part = f"sample={sample_tag}" if sample_tag else None
-                                if track_strategy == "counts_raw":
-                                    parts = [
-                                        f"k={sample_meta['sample_size_k']}",
-                                        f"rep={rep}",
-                                        f"seed={seed_samples}",
-                                    ]
-                                    if sample_tag_part:
-                                        parts.append(sample_tag_part)
-                                    parts.append(ds_tag)
-                                    parts.append(bin_tag)
-                                    parts.append(f"track={track_strategy}")
-                                    parts.append(f"covs={'-'.join(covs) if covs else 'none'}")
-                                    parts.append(f"tri={int(include_trinuc)}")
-                                    run_id = (
-                                        "__".join(parts)
-                                    )
-                                else:
-                                    if track_strategy == "counts_gauss":
-                                        unit_tag = counts_gauss_sigma_units
-                                    elif track_strategy == "inv_dist_gauss":
-                                        unit_tag = inv_dist_gauss_sigma_units
-                                    else:
-                                        unit_tag = "bp"
-                                    parts = [
-                                        f"k={sample_meta['sample_size_k']}",
-                                        f"rep={rep}",
-                                        f"seed={seed_samples}",
-                                    ]
-                                    if sample_tag_part:
-                                        parts.append(sample_tag_part)
-                                    parts.append(ds_tag)
-                                    parts.append(bin_tag)
-                                    parts.append(f"track={track_strategy}")
-                                    parts.append(param_tag)
-                                    parts.append(f"u={unit_tag}")
-                                    parts.append(f"covs={'-'.join(covs) if covs else 'none'}")
-                                    parts.append(f"tri={int(include_trinuc)}")
-                                    run_id = (
-                                        "__".join(parts)
-                                    )
-                                if run_id in completed_run_ids:
-                                    logger.info("Skipping completed run %s", run_id)
-                                    continue
-                                t0 = time.perf_counter()
-                                run_dir = ensure_dir(runs_dir / run_id)
-                                celltypes = list(dnase_bigwigs.keys())
-                                run_counter += 1
-                                log_section(logger, f"Run start [{run_counter}/{total_runs}]")
-                                log_kv(logger, "id", run_id)
-                                log_kv(
-                                    logger,
-                                    "standardise",
-                                    f"{standardise_scope} ({'on' if standardise_tracks else 'off'})",
-                                )
-                                log_kv(logger, "celltypes", ", ".join(celltypes))
-                                log_kv(logger, "rf_seed", str(rf_seed))
-                                run_start = time.perf_counter()
+                                chrom_row["rf_top_celltype_importance_perm"] = float(top_feature[1])
+                            else:
+                                chrom_row["rf_top_celltype_feature_perm"] = None
+                                chrom_row["rf_top_celltype_importance_perm"] = float("nan")
+                        else:
+                            chrom_row["n_bins_valid_rf_features"] = 0
+                            chrom_row["rf_r2"] = float("nan")
+                            chrom_row["ridge_r2"] = float("nan")
+                            chrom_row["rf_perm_importances_json"] = json.dumps({})
+                            chrom_row["rf_feature_sign_corr_json"] = json.dumps({})
+                            chrom_row["rf_feature_importances_json"] = json.dumps({})
+                            chrom_row["ridge_coef_json"] = json.dumps({})
+                            chrom_row["rf_top_celltype_feature_perm"] = None
+                            chrom_row["rf_top_celltype_importance_perm"] = float("nan")
 
-                                # save config for this run
-                                cfg = {
-                                    "mut_path": str(mut_path),
-                                    "fai_path": str(fai_path),
-                                    "fasta_path": str(fasta_path),
-                                    "dnase_bigwigs": {k: str(v) for k, v in dnase_bigwigs.items()},
-                                    "timing_bigwig": None if timing_bigwig is None else str(timing_bigwig),
-                                    "sample_meta": sample_meta,
-                                    "downsample_target": None if downsample_target is None else int(downsample_target),
-                                    "mutations_pre_downsample": int(len(muts_df)),
-                                    "mutations_post_downsample": int(len(muts_df_run)),
-                                    "track_strategy": track_strategy,
-                                    "track_param_tag": param_tag,
-                                    "covariates": covs,
-                                    "include_trinuc": bool(include_trinuc),
-                                    "standardise_tracks": bool(standardise_tracks),
-                                    "standardise_scope": str(standardise_scope),
-                                    "pearson_score_window_bins": int(pearson_score_window_bins),
-                                    "pearson_score_smoothing": str(pearson_score_smoothing),
-                                    "pearson_score_smooth_param": None
-                                    if pearson_score_smooth_param is None
-                                    else float(pearson_score_smooth_param),
-                                    "pearson_score_transform": str(pearson_score_transform),
-                                    "pearson_score_zscore": bool(pearson_score_zscore),
-                                    "pearson_score_weights": [
-                                        float(pearson_score_weights[0]),
-                                        float(pearson_score_weights[1]),
-                                    ],
-                                    "spearman_score_window_bins": int(spearman_score_window_bins),
-                                    "spearman_score_smoothing": str(spearman_score_smoothing),
-                                    "spearman_score_smooth_param": None
-                                    if spearman_score_smooth_param is None
-                                    else float(spearman_score_smooth_param),
-                                    "spearman_score_transform": str(spearman_score_transform),
-                                    "spearman_score_zscore": bool(spearman_score_zscore),
-                                    "spearman_score_weights": [
-                                        float(spearman_score_weights[0]),
-                                        float(spearman_score_weights[1]),
-                                    ],
-                                    **prefixed_params,
-                                    "counts_gauss_sigma_grid": list(map(float, counts_gauss_sigma_grid)),
-                                    "inv_dist_gauss_sigma_grid": list(map(float, inv_dist_gauss_sigma_grid)),
-                                    "inv_dist_gauss_max_distance_bp_grid": list(
-                                        map(int, inv_dist_gauss_max_distance_bp_grid)),
-                                    "inv_dist_gauss_pairs": list(inv_dist_gauss_pairs) if inv_dist_gauss_pairs else [],
-                                    "exp_decay_decay_bp_grid": list(map(float, exp_decay_decay_bp_grid)),
-                                    "exp_decay_max_distance_bp_grid": list(map(int, exp_decay_max_distance_bp_grid)),
-                                    "exp_decay_adaptive_k_grid": list(map(int, exp_decay_adaptive_k_grid)),
-                                    "exp_decay_adaptive_min_bandwidth_bp_grid": list(
-                                        map(float, exp_decay_adaptive_min_bandwidth_bp_grid)),
-                                    "exp_decay_adaptive_max_distance_bp_grid": list(
-                                        map(int, exp_decay_adaptive_max_distance_bp_grid)),
-                                    "rf_seed": int(rf_seed),
-                                    "chroms": [ci.chrom for ci in chrom_infos],
-                                    "tumour_filter": list(tumour_filter) if tumour_filter else [],
+                        if save_per_bin:
+                            per_bin_df = pd.DataFrame(
+                                {
+                                    "chrom": ci.chrom,
+                                    "bin_start": edges[:-1].astype(int),
+                                    "bin_end": edges[1:].astype(int),
+                                    "bin_centre": centres.astype(int),
+                                    "mut_track": mut_track,
                                 }
-                                save_json(cfg, run_dir / "config.json")
+                            )
+                            for celltype, dnase_track in dnase_tracks.items():
+                                per_bin_df[f"{accessibility_prefix}_{celltype}"] = dnase_track
+                            per_bin_df = pd.concat([per_bin_df, cov_df], axis=1)
+                            per_bin_parts.append(per_bin_df)
 
-                                # run per-chrom and aggregate metrics
-                                chrom_summaries = []
-                                per_bin_parts = []
-                                for i, ci in enumerate(chrom_infos, start=1):
-                                    progress_line(
-                                        logger,
-                                        i=i,
-                                        total=len(chrom_infos),
-                                        run_start=run_start,
-                                        every=5,
+                        chrom_summaries.append(chrom_row)
+
+                    chrom_df = pd.DataFrame(chrom_summaries)
+
+                    # aggregate: weighted means across chroms
+                    selected_sample_ids = _unique_nonempty(chosen_samples)
+                    selected_tumour_types = _unique_nonempty(
+                        muts_df["Tumour"].tolist() if not muts_df.empty else []
+                    )
+                    correct_celltypes = (
+                        celltype_map.infer_correct_celltypes(selected_tumour_types)
+                        if celltype_map is not None
+                        else []
+                    )
+                    def _lower_celltype(value: Any) -> Optional[str]:
+                        if value is None:
+                            return None
+                        s = str(value).strip()
+                        if not s:
+                            return None
+                        return s.lower()
+
+                    correct_celltypes_lower = [
+                        str(ct).strip().lower()
+                        for ct in correct_celltypes
+                        if str(ct).strip()
+                    ]
+
+                    agg = {
+                        **sample_meta,
+                        "selected_sample_ids": ",".join(selected_sample_ids),
+                        "selected_tumour_types": ",".join(selected_tumour_types),
+                        "correct_celltypes": ",".join(correct_celltypes_lower),
+                        "downsample_target": None if downsample_target is None else int(downsample_target),
+                        "mutations_pre_downsample": int(len(muts_df)),
+                        "mutations_post_downsample": int(len(muts_df_run)),
+                        "track_strategy": track_strategy,
+                        "track_param_tag": param_tag,
+                        "covariates": ",".join(covs) if covs else "",
+                        "include_trinuc": bool(include_trinuc),
+                        "n_mutations_total": int(chrom_df["n_mutations_chr"].sum()),
+                        "n_bins_total": int(chrom_df["n_bins"].sum()),
+                        "run_id": run_id,
+                        **prefixed_params,
+                    }
+
+                    raw_vals: Dict[str, float] = {}
+                    lin_vals: Dict[str, float] = {}
+                    rf_vals: Dict[str, float] = {}
+                    spearman_raw_vals: Dict[str, float] = {}
+                    spearman_lin_vals: Dict[str, float] = {}
+                    pearson_score_vals: Dict[str, float] = {}
+                    spearman_score_vals: Dict[str, float] = {}
+                    for ct in celltypes:
+                        weights = chrom_df[
+                            f"n_bins_valid_mut_and_{accessibility_prefix}_{ct}"
+                        ].to_numpy(dtype=float)
+                        raw = chrom_df[f"pearson_r_raw_{ct}"].to_numpy(dtype=float)
+                        lin = chrom_df[f"pearson_r_linear_resid_{ct}"].to_numpy(dtype=float)
+                        rf = chrom_df[f"pearson_r_rf_resid_{ct}"].to_numpy(dtype=float)
+                        s_raw = chrom_df[f"spearman_r_raw_{ct}"].to_numpy(dtype=float)
+                        s_lin = chrom_df[f"spearman_r_linear_resid_{ct}"].to_numpy(dtype=float)
+                        pearson_score_global = chrom_df[
+                            f"pearson_local_score_global_{ct}"
+                        ].to_numpy(dtype=float)
+                        pearson_score_neg_frac = chrom_df[
+                            f"pearson_local_score_negative_corr_fraction_{ct}"
+                        ].to_numpy(dtype=float)
+                        spearman_score_global = chrom_df[
+                            f"spearman_local_score_global_{ct}"
+                        ].to_numpy(dtype=float)
+                        spearman_score_neg_frac = chrom_df[
+                            f"spearman_local_score_negative_corr_fraction_{ct}"
+                        ].to_numpy(dtype=float)
+
+                        agg[f"pearson_r_raw_{ct}_mean_weighted"] = weighted_mean(raw, weights)
+                        agg[f"pearson_r_linear_resid_{ct}_mean_weighted"] = weighted_mean(lin, weights)
+                        agg[f"pearson_r_rf_resid_{ct}_mean_weighted"] = weighted_mean(rf, weights)
+                        agg[f"spearman_r_raw_{ct}_mean_weighted"] = weighted_mean(s_raw, weights)
+                        agg[f"spearman_r_linear_resid_{ct}_mean_weighted"] = weighted_mean(
+                            s_lin, weights
+                        )
+                        agg[f"pearson_r_raw_{ct}_mean_unweighted"] = float(np.nanmean(raw))
+                        agg[f"pearson_r_linear_resid_{ct}_mean_unweighted"] = float(np.nanmean(lin))
+                        agg[f"pearson_r_rf_resid_{ct}_mean_unweighted"] = float(np.nanmean(rf))
+                        agg[f"spearman_r_raw_{ct}_mean_unweighted"] = float(np.nanmean(s_raw))
+                        agg[f"spearman_r_linear_resid_{ct}_mean_unweighted"] = float(
+                            np.nanmean(s_lin)
+                        )
+                        agg[
+                            f"pearson_local_score_global_{ct}_mean_weighted"
+                        ] = weighted_mean(pearson_score_global, weights)
+                        agg[
+                            f"pearson_local_score_global_{ct}_mean_unweighted"
+                        ] = _nanmean_safe(pearson_score_global)
+                        agg[
+                            f"pearson_local_score_negative_corr_fraction_{ct}_mean_weighted"
+                        ] = weighted_mean(pearson_score_neg_frac, weights)
+                        agg[
+                            f"pearson_local_score_negative_corr_fraction_{ct}_mean_unweighted"
+                        ] = _nanmean_safe(pearson_score_neg_frac)
+                        agg[
+                            f"spearman_local_score_global_{ct}_mean_weighted"
+                        ] = weighted_mean(spearman_score_global, weights)
+                        agg[
+                            f"spearman_local_score_global_{ct}_mean_unweighted"
+                        ] = _nanmean_safe(spearman_score_global)
+                        agg[
+                            f"spearman_local_score_negative_corr_fraction_{ct}_mean_weighted"
+                        ] = weighted_mean(spearman_score_neg_frac, weights)
+                        agg[
+                            f"spearman_local_score_negative_corr_fraction_{ct}_mean_unweighted"
+                        ] = _nanmean_safe(spearman_score_neg_frac)
+
+                        raw_vals[ct] = agg[f"pearson_r_raw_{ct}_mean_weighted"]
+                        lin_vals[ct] = agg[f"pearson_r_linear_resid_{ct}_mean_weighted"]
+                        rf_vals[ct] = agg[f"pearson_r_rf_resid_{ct}_mean_weighted"]
+                        spearman_raw_vals[ct] = agg[f"spearman_r_raw_{ct}_mean_weighted"]
+                        spearman_lin_vals[ct] = agg[f"spearman_r_linear_resid_{ct}_mean_weighted"]
+                        pearson_score_vals[ct] = agg[
+                            f"pearson_local_score_global_{ct}_mean_weighted"
+                        ]
+                        spearman_score_vals[ct] = agg[
+                            f"spearman_local_score_global_{ct}_mean_weighted"
+                        ]
+
+                    best_raw, best_raw_val, best_raw_margin = best_and_margin(raw_vals)
+                    best_lin, best_lin_val, best_lin_margin = best_and_margin(lin_vals)
+                    best_rf, best_rf_val, best_rf_margin = best_and_margin(rf_vals)
+                    best_s_raw, best_s_raw_val, best_s_raw_margin = best_and_margin(
+                        spearman_raw_vals
+                    )
+                    best_s_lin, best_s_lin_val, best_s_lin_margin = best_and_margin(
+                        spearman_lin_vals
+                    )
+                    best_p_score, best_p_score_val, best_p_score_margin = best_and_margin(
+                        pearson_score_vals
+                    )
+                    best_s_score, best_s_score_val, best_s_score_margin = best_and_margin(
+                        spearman_score_vals
+                    )
+
+                    agg["best_celltype_raw"] = _lower_celltype(best_raw)
+                    agg["best_celltype_raw_value"] = float(best_raw_val)
+                    agg["best_minus_second_raw"] = float(best_raw_margin)
+                    agg["best_celltype_linear_resid"] = _lower_celltype(best_lin)
+                    agg["best_celltype_linear_resid_value"] = float(best_lin_val)
+                    agg["best_minus_second_linear_resid"] = float(best_lin_margin)
+                    agg["best_celltype_rf_resid"] = _lower_celltype(best_rf)
+                    agg["best_celltype_rf_resid_value"] = float(best_rf_val)
+                    agg["best_minus_second_rf_resid"] = float(best_rf_margin)
+                    agg["best_celltype_spearman_raw"] = _lower_celltype(best_s_raw)
+                    agg["best_celltype_spearman_raw_value"] = float(best_s_raw_val)
+                    agg["best_minus_second_spearman_raw"] = float(best_s_raw_margin)
+                    agg["best_celltype_spearman_linear_resid"] = _lower_celltype(best_s_lin)
+                    agg["best_celltype_spearman_linear_resid_value"] = float(best_s_lin_val)
+                    agg["best_minus_second_spearman_linear_resid"] = float(best_s_lin_margin)
+                    agg["best_celltype_pearson_local_score"] = _lower_celltype(best_p_score)
+                    agg["best_celltype_pearson_local_score_value"] = float(best_p_score_val)
+                    agg["best_minus_second_pearson_local_score"] = float(best_p_score_margin)
+                    agg["best_celltype_spearman_local_score"] = _lower_celltype(best_s_score)
+                    agg["best_celltype_spearman_local_score_value"] = float(best_s_score_val)
+                    agg["best_minus_second_spearman_local_score"] = float(best_s_score_margin)
+
+                    agg["rf_perm_importances_mean_json"] = json.dumps(
+                        aggregate_dict_column(chrom_df, "rf_perm_importances_json",
+                                              "n_bins_valid_rf_features")
+                    )
+                    agg["rf_feature_sign_corr_mean_json"] = json.dumps(
+                        aggregate_dict_column(chrom_df, "rf_feature_sign_corr_json",
+                                              "n_bins_valid_rf_features")
+                    )
+                    agg["ridge_coef_mean_json"] = json.dumps(
+                        aggregate_dict_column(chrom_df, "ridge_coef_json", "n_bins_valid_rf_features")
+                    )
+                    agg["rf_r2_mean_weighted"] = weighted_mean(
+                        chrom_df["rf_r2"].to_numpy(dtype=float),
+                        chrom_df["n_bins_valid_rf_features"].to_numpy(dtype=float),
+                    )
+                    agg["ridge_r2_mean_weighted"] = weighted_mean(
+                        chrom_df["ridge_r2"].to_numpy(dtype=float),
+                        chrom_df["n_bins_valid_rf_features"].to_numpy(dtype=float),
+                    )
+
+                    rf_perm_means = json.loads(agg["rf_perm_importances_mean_json"])
+                    acc_perm = {
+                        k: v for k, v in rf_perm_means.items()
+                        if k.startswith(f"{accessibility_prefix}_")
+                    }
+                    if acc_perm:
+                        top_feature = max(acc_perm.items(), key=lambda kv: kv[1])
+                        agg["rf_top_celltype_feature_perm"] = top_feature[0].replace(
+                            f"{accessibility_prefix}_",
+                            "",
+                        )
+                        agg["rf_top_celltype_importance_perm"] = float(top_feature[1])
+                    else:
+                        agg["rf_top_celltype_feature_perm"] = None
+                        agg["rf_top_celltype_importance_perm"] = float("nan")
+
+                    agg.update(
+                        compute_derived_fields(
+                            agg,
+                            accessibility_prefix=accessibility_prefix,
+                        )
+                    )
+                    is_correct = agg.get("is_correct_pearson_local_score")
+                    if is_correct is True:
+                        correct_counts["true"] += 1
+                    elif is_correct is False:
+                        correct_counts["false"] += 1
+                    else:
+                        correct_counts["none"] += 1
+                    top_feat = agg.get("rf_top_feature_perm")
+                    if top_feat:
+                        rf_top_feature_counts[top_feat] = rf_top_feature_counts.get(top_feat, 0) + 1
+
+                    rows.append(agg)
+
+                    out_paths = {
+                        "config": _relpath(run_dir / "config.json"),
+                        "chrom_sum": _relpath(run_dir / "chrom_summary.csv"),
+                        "per_bin": _relpath(run_dir / "per_bin.csv") if save_per_bin else "skipped",
+                        "results": _relpath(out_dir / "results.csv"),
+                    }
+
+                    summarise_run(
+                        logger,
+                        n_bins_total=int(agg["n_bins_total"]),
+                        n_mutations_total=int(agg["n_mutations_total"]),
+                        correct_celltypes=str(agg.get("correct_celltypes") or ""),
+                        metric_summaries=[
+                            (
+                                "Pearson r",
+                                agg.get("best_celltype_raw"),
+                                float(agg.get("best_celltype_raw_value", float("nan"))),
+                            ),
+                            (
+                                "Pearson r (linear covariate)"
+                                if covs
+                                else "Pearson r (no covariates)",
+                                agg.get("best_celltype_linear_resid"),
+                                float(agg.get("best_celltype_linear_resid_value", float("nan"))),
+                            ),
+                            (
+                                "Spearman r",
+                                agg.get("best_celltype_spearman_raw"),
+                                float(agg.get("best_celltype_spearman_raw_value", float("nan"))),
+                            ),
+                            (
+                                "Spearman r (linear covariate)"
+                                if covs
+                                else "Spearman r (no covariates)",
+                                agg.get("best_celltype_spearman_linear_resid"),
+                                float(
+                                    agg.get(
+                                        "best_celltype_spearman_linear_resid_value", float("nan")
                                     )
-                                    shared = build_shared_inputs(
-                                        pos_by_chrom=pos_by_chrom,
-                                        chrom=ci.chrom,
-                                        chrom_length=ci.length,
-                                        bin_size=bin_size,
-                                        track_strategy=track_strategy,
-                                        counts_sigma_bins=counts_sigma_bins_run,
-                                        inv_sigma_bins=inv_sigma_bins_run,
-                                        max_distance_bp=max_distance_bp_run,
-                                        exp_decay_bp=exp_decay_bp_run,
-                                        exp_max_distance_bp=exp_max_distance_bp_run,
-                                        adaptive_k=adaptive_k_run,
-                                        adaptive_min_bandwidth_bp=adaptive_min_bandwidth_bp_run,
-                                        adaptive_max_distance_bp=adaptive_max_distance_bp_run,
-                                        covariates=covs,
-                                        fasta_path=fasta_path,
-                                        timing_bigwig=timing_bigwig,
-                                        include_trinuc=include_trinuc,
+                                ),
+                            ),
+                            (
+                                "Local score (pearson, linear covariate)"
+                                if covs
+                                else "Local score (pearson, no covariates)",
+                                agg.get("best_celltype_pearson_local_score"),
+                                float(
+                                    agg.get(
+                                        "best_celltype_pearson_local_score_value", float("nan")
                                     )
-
-                                    edges = shared["edges"]
-                                    centres = shared["centres"]
-                                    mut_track = shared["mut_track"]
-                                    cov_df = shared["cov_df"]
-
-                                    chrom_row: Dict[str, Any] = {
-                                        "chrom": ci.chrom,
-                                        "track_strategy": track_strategy,
-                                        "n_bins": int(len(edges) - 1),
-                                        "n_mutations_chr": int(shared["mut_pos"].size),
-                                        "covariates": ",".join(covs) if covs else "",
-                                        "include_trinuc": bool(include_trinuc),
-                                        **prefixed_params,
-                                    }
-
-                                    dnase_tracks: Dict[str, np.ndarray] = {}
-
-                                    for celltype in celltypes:
-                                        summ, dnase_track = run_one_config(
-                                            muts_df=muts_df_run,
-                                            chrom=ci.chrom,
-                                            chrom_length=ci.length,
-                                            bin_size=bin_size,
-                                            track_strategy=track_strategy,
-                                            counts_sigma_bins=counts_sigma_bins_run,
-                                            inv_sigma_bins=inv_sigma_bins_run,
-                                            max_distance_bp=max_distance_bp_run,
-                                            exp_decay_bp=exp_decay_bp_run,
-                                            exp_max_distance_bp=exp_max_distance_bp_run,
-                                            adaptive_k=adaptive_k_run,
-                                            adaptive_min_bandwidth_bp=adaptive_min_bandwidth_bp_run,
-                                            adaptive_max_distance_bp=adaptive_max_distance_bp_run,
-                                            dnase_bigwig=dnase_bigwigs[celltype],
-                                            celltype=celltype,
-                                            covariates=covs,
-                                            fasta_path=fasta_path,
-                                            timing_bigwig=timing_bigwig,
-                                            include_trinuc=include_trinuc,
-                                            rf_seed=rf_seed,
-                                            pearson_score_window_bins=pearson_score_window_bins,
-                                            pearson_score_smoothing=pearson_score_smoothing,
-                                            pearson_score_smooth_param=pearson_score_smooth_param,
-                                            pearson_score_transform=pearson_score_transform,
-                                            pearson_score_zscore=pearson_score_zscore,
-                                            pearson_score_weights=pearson_score_weights,
-                                            spearman_score_window_bins=spearman_score_window_bins,
-                                            spearman_score_smoothing=spearman_score_smoothing,
-                                            spearman_score_smooth_param=spearman_score_smooth_param,
-                                            spearman_score_transform=spearman_score_transform,
-                                            spearman_score_zscore=spearman_score_zscore,
-                                            spearman_score_weights=spearman_score_weights,
-                                            standardise_tracks=standardise_tracks,
-                                            standardise_scope=standardise_scope,
-                                            accessibility_prefix=accessibility_prefix,
-                                            shared=shared,
-                                            pos_by_chrom=pos_by_chrom,
-                                        )
-                                        dnase_tracks[celltype] = dnase_track
-                                        chrom_row[f"pearson_r_raw_{celltype}"] = summ["pearson_r_raw"]
-                                        chrom_row[f"pearson_r_linear_resid_{celltype}"] = summ["pearson_r_linear_resid"]
-                                        chrom_row[f"pearson_r_rf_resid_{celltype}"] = summ["pearson_r_rf_resid"]
-                                        chrom_row[f"spearman_r_raw_{celltype}"] = summ["spearman_r_raw"]
-                                        chrom_row[f"spearman_r_linear_resid_{celltype}"] = summ[
-                                            "spearman_r_linear_resid"
-                                        ]
-                                        chrom_row[f"pearson_local_score_global_{celltype}"] = summ[
-                                            "pearson_local_score_global"
-                                        ]
-                                        chrom_row[
-                                            f"pearson_local_score_negative_corr_fraction_{celltype}"
-                                        ] = summ["pearson_local_score_negative_corr_fraction"]
-                                        chrom_row[f"spearman_local_score_global_{celltype}"] = summ[
-                                            "spearman_local_score_global"
-                                        ]
-                                        chrom_row[
-                                            f"spearman_local_score_negative_corr_fraction_{celltype}"
-                                        ] = summ["spearman_local_score_negative_corr_fraction"]
-                                        chrom_row[f"n_bins_valid_mut_and_{accessibility_prefix}_{celltype}"] = summ[
-                                            f"n_bins_valid_mut_and_{accessibility_prefix}"
-                                        ]
-
-                                    # RF feature analysis: predict mutation track from covariates + accessibility tracks
-                                    feature_names = list(cov_df.columns) + [
-                                        f"{accessibility_prefix}_{ct}" for ct in celltypes
-                                    ]
-                                    if feature_names:
-                                        dnase_feature_matrix = np.column_stack([dnase_tracks[ct] for ct in celltypes])
-                                        X_full = (
-                                            np.column_stack([cov_df.to_numpy(dtype=float), dnase_feature_matrix])
-                                            if cov_df.shape[1]
-                                            else dnase_feature_matrix
-                                        )
-                                        mut_track_rf = zscore_nan(mut_track) if standardise_tracks else mut_track
-                                        perm_imp, sign_corr, impurity_imp, rf_r2, ridge_coef, ridge_r2 = (
-                                            rf_feature_analysis(
-                                                mut_track_rf,
-                                                X_full,
-                                                feature_names,
-                                                seed=rf_seed,
-                                            )
-                                        )
-                                        mask_rf = np.isfinite(mut_track_rf) & np.all(np.isfinite(X_full), axis=1)
-                                        chrom_row["n_bins_valid_rf_features"] = int(mask_rf.sum())
-                                        chrom_row["rf_r2"] = float(rf_r2)
-                                        chrom_row["ridge_r2"] = float(ridge_r2)
-                                        chrom_row["rf_perm_importances_json"] = json.dumps(perm_imp)
-                                        chrom_row["rf_feature_sign_corr_json"] = json.dumps(sign_corr)
-                                        chrom_row["rf_feature_importances_json"] = json.dumps(impurity_imp)
-                                        chrom_row["ridge_coef_json"] = json.dumps(ridge_coef)
-                                        acc_perm = {
-                                            k: v for k, v in perm_imp.items()
-                                            if k.startswith(f"{accessibility_prefix}_")
-                                        }
-                                        if acc_perm:
-                                            top_feature = max(acc_perm.items(), key=lambda kv: kv[1])
-                                            chrom_row["rf_top_celltype_feature_perm"] = top_feature[0].replace(
-                                                f"{accessibility_prefix}_",
-                                                "",
-                                            )
-                                            chrom_row["rf_top_celltype_importance_perm"] = float(top_feature[1])
-                                        else:
-                                            chrom_row["rf_top_celltype_feature_perm"] = None
-                                            chrom_row["rf_top_celltype_importance_perm"] = float("nan")
-                                    else:
-                                        chrom_row["n_bins_valid_rf_features"] = 0
-                                        chrom_row["rf_r2"] = float("nan")
-                                        chrom_row["ridge_r2"] = float("nan")
-                                        chrom_row["rf_perm_importances_json"] = json.dumps({})
-                                        chrom_row["rf_feature_sign_corr_json"] = json.dumps({})
-                                        chrom_row["rf_feature_importances_json"] = json.dumps({})
-                                        chrom_row["ridge_coef_json"] = json.dumps({})
-                                        chrom_row["rf_top_celltype_feature_perm"] = None
-                                        chrom_row["rf_top_celltype_importance_perm"] = float("nan")
-
-                                    if save_per_bin:
-                                        per_bin_df = pd.DataFrame(
-                                            {
-                                                "chrom": ci.chrom,
-                                                "bin_start": edges[:-1].astype(int),
-                                                "bin_end": edges[1:].astype(int),
-                                                "bin_centre": centres.astype(int),
-                                                "mut_track": mut_track,
-                                            }
-                                        )
-                                        for celltype, dnase_track in dnase_tracks.items():
-                                            per_bin_df[f"{accessibility_prefix}_{celltype}"] = dnase_track
-                                        per_bin_df = pd.concat([per_bin_df, cov_df], axis=1)
-                                        per_bin_parts.append(per_bin_df)
-
-                                    chrom_summaries.append(chrom_row)
-
-                                chrom_df = pd.DataFrame(chrom_summaries)
-
-                                # aggregate: weighted means across chroms
-                                selected_sample_ids = _unique_nonempty(chosen_samples)
-                                selected_tumour_types = _unique_nonempty(
-                                    muts_df["Tumour"].tolist() if not muts_df.empty else []
-                                )
-                                correct_celltypes = (
-                                    celltype_map.infer_correct_celltypes(selected_tumour_types)
-                                    if celltype_map is not None
-                                    else []
-                                )
-                                def _lower_celltype(value: Any) -> Optional[str]:
-                                    if value is None:
-                                        return None
-                                    s = str(value).strip()
-                                    if not s:
-                                        return None
-                                    return s.lower()
-
-                                correct_celltypes_lower = [
-                                    str(ct).strip().lower()
-                                    for ct in correct_celltypes
-                                    if str(ct).strip()
-                                ]
-
-                                agg = {
-                                    **sample_meta,
-                                    "selected_sample_ids": ",".join(selected_sample_ids),
-                                    "selected_tumour_types": ",".join(selected_tumour_types),
-                                    "correct_celltypes": ",".join(correct_celltypes_lower),
-                                    "downsample_target": None if downsample_target is None else int(downsample_target),
-                                    "mutations_pre_downsample": int(len(muts_df)),
-                                    "mutations_post_downsample": int(len(muts_df_run)),
-                                    "track_strategy": track_strategy,
-                                    "track_param_tag": param_tag,
-                                    "covariates": ",".join(covs) if covs else "",
-                                    "include_trinuc": bool(include_trinuc),
-                                    "n_mutations_total": int(chrom_df["n_mutations_chr"].sum()),
-                                    "n_bins_total": int(chrom_df["n_bins"].sum()),
-                                    "run_id": run_id,
-                                    **prefixed_params,
-                                }
-
-                                raw_vals: Dict[str, float] = {}
-                                lin_vals: Dict[str, float] = {}
-                                rf_vals: Dict[str, float] = {}
-                                spearman_raw_vals: Dict[str, float] = {}
-                                spearman_lin_vals: Dict[str, float] = {}
-                                pearson_score_vals: Dict[str, float] = {}
-                                spearman_score_vals: Dict[str, float] = {}
-                                for ct in celltypes:
-                                    weights = chrom_df[
-                                        f"n_bins_valid_mut_and_{accessibility_prefix}_{ct}"
-                                    ].to_numpy(dtype=float)
-                                    raw = chrom_df[f"pearson_r_raw_{ct}"].to_numpy(dtype=float)
-                                    lin = chrom_df[f"pearson_r_linear_resid_{ct}"].to_numpy(dtype=float)
-                                    rf = chrom_df[f"pearson_r_rf_resid_{ct}"].to_numpy(dtype=float)
-                                    s_raw = chrom_df[f"spearman_r_raw_{ct}"].to_numpy(dtype=float)
-                                    s_lin = chrom_df[f"spearman_r_linear_resid_{ct}"].to_numpy(dtype=float)
-                                    pearson_score_global = chrom_df[
-                                        f"pearson_local_score_global_{ct}"
-                                    ].to_numpy(dtype=float)
-                                    pearson_score_neg_frac = chrom_df[
-                                        f"pearson_local_score_negative_corr_fraction_{ct}"
-                                    ].to_numpy(dtype=float)
-                                    spearman_score_global = chrom_df[
-                                        f"spearman_local_score_global_{ct}"
-                                    ].to_numpy(dtype=float)
-                                    spearman_score_neg_frac = chrom_df[
-                                        f"spearman_local_score_negative_corr_fraction_{ct}"
-                                    ].to_numpy(dtype=float)
-
-                                    agg[f"pearson_r_raw_{ct}_mean_weighted"] = weighted_mean(raw, weights)
-                                    agg[f"pearson_r_linear_resid_{ct}_mean_weighted"] = weighted_mean(lin, weights)
-                                    agg[f"pearson_r_rf_resid_{ct}_mean_weighted"] = weighted_mean(rf, weights)
-                                    agg[f"spearman_r_raw_{ct}_mean_weighted"] = weighted_mean(s_raw, weights)
-                                    agg[f"spearman_r_linear_resid_{ct}_mean_weighted"] = weighted_mean(
-                                        s_lin, weights
+                                ),
+                            ),
+                            (
+                                "Local score (spearman, linear covariate)"
+                                if covs
+                                else "Local score (spearman, no covariates)",
+                                agg.get("best_celltype_spearman_local_score"),
+                                float(
+                                    agg.get(
+                                        "best_celltype_spearman_local_score_value", float("nan")
                                     )
-                                    agg[f"pearson_r_raw_{ct}_mean_unweighted"] = float(np.nanmean(raw))
-                                    agg[f"pearson_r_linear_resid_{ct}_mean_unweighted"] = float(np.nanmean(lin))
-                                    agg[f"pearson_r_rf_resid_{ct}_mean_unweighted"] = float(np.nanmean(rf))
-                                    agg[f"spearman_r_raw_{ct}_mean_unweighted"] = float(np.nanmean(s_raw))
-                                    agg[f"spearman_r_linear_resid_{ct}_mean_unweighted"] = float(
-                                        np.nanmean(s_lin)
-                                    )
-                                    agg[
-                                        f"pearson_local_score_global_{ct}_mean_weighted"
-                                    ] = weighted_mean(pearson_score_global, weights)
-                                    agg[
-                                        f"pearson_local_score_global_{ct}_mean_unweighted"
-                                    ] = _nanmean_safe(pearson_score_global)
-                                    agg[
-                                        f"pearson_local_score_negative_corr_fraction_{ct}_mean_weighted"
-                                    ] = weighted_mean(pearson_score_neg_frac, weights)
-                                    agg[
-                                        f"pearson_local_score_negative_corr_fraction_{ct}_mean_unweighted"
-                                    ] = _nanmean_safe(pearson_score_neg_frac)
-                                    agg[
-                                        f"spearman_local_score_global_{ct}_mean_weighted"
-                                    ] = weighted_mean(spearman_score_global, weights)
-                                    agg[
-                                        f"spearman_local_score_global_{ct}_mean_unweighted"
-                                    ] = _nanmean_safe(spearman_score_global)
-                                    agg[
-                                        f"spearman_local_score_negative_corr_fraction_{ct}_mean_weighted"
-                                    ] = weighted_mean(spearman_score_neg_frac, weights)
-                                    agg[
-                                        f"spearman_local_score_negative_corr_fraction_{ct}_mean_unweighted"
-                                    ] = _nanmean_safe(spearman_score_neg_frac)
+                                ),
+                            ),
+                            (
+                                "RF (non-linear covariate)" if covs else "RF (no covariates)",
+                                agg.get("best_celltype_rf_resid"),
+                                float(agg.get("best_celltype_rf_resid_value", float("nan"))),
+                            ),
+                        ],
+                        out_paths=out_paths,
+                    )
 
-                                    raw_vals[ct] = agg[f"pearson_r_raw_{ct}_mean_weighted"]
-                                    lin_vals[ct] = agg[f"pearson_r_linear_resid_{ct}_mean_weighted"]
-                                    rf_vals[ct] = agg[f"pearson_r_rf_resid_{ct}_mean_weighted"]
-                                    spearman_raw_vals[ct] = agg[f"spearman_r_raw_{ct}_mean_weighted"]
-                                    spearman_lin_vals[ct] = agg[f"spearman_r_linear_resid_{ct}_mean_weighted"]
-                                    pearson_score_vals[ct] = agg[
-                                        f"pearson_local_score_global_{ct}_mean_weighted"
-                                    ]
-                                    spearman_score_vals[ct] = agg[
-                                        f"spearman_local_score_global_{ct}_mean_weighted"
-                                    ]
+                    # save run summaries
+                    save_df(chrom_df, run_dir / "chrom_summary.csv")
 
-                                best_raw, best_raw_val, best_raw_margin = best_and_margin(raw_vals)
-                                best_lin, best_lin_val, best_lin_margin = best_and_margin(lin_vals)
-                                best_rf, best_rf_val, best_rf_margin = best_and_margin(rf_vals)
-                                best_s_raw, best_s_raw_val, best_s_raw_margin = best_and_margin(
-                                    spearman_raw_vals
-                                )
-                                best_s_lin, best_s_lin_val, best_s_lin_margin = best_and_margin(
-                                    spearman_lin_vals
-                                )
-                                best_p_score, best_p_score_val, best_p_score_margin = best_and_margin(
-                                    pearson_score_vals
-                                )
-                                best_s_score, best_s_score_val, best_s_score_margin = best_and_margin(
-                                    spearman_score_vals
-                                )
+                    if save_per_bin and per_bin_parts:
+                        per_bin_df = pd.concat(per_bin_parts, ignore_index=True)
+                        save_df(per_bin_df, run_dir / "per_bin.csv")
 
-                                agg["best_celltype_raw"] = _lower_celltype(best_raw)
-                                agg["best_celltype_raw_value"] = float(best_raw_val)
-                                agg["best_minus_second_raw"] = float(best_raw_margin)
-                                agg["best_celltype_linear_resid"] = _lower_celltype(best_lin)
-                                agg["best_celltype_linear_resid_value"] = float(best_lin_val)
-                                agg["best_minus_second_linear_resid"] = float(best_lin_margin)
-                                agg["best_celltype_rf_resid"] = _lower_celltype(best_rf)
-                                agg["best_celltype_rf_resid_value"] = float(best_rf_val)
-                                agg["best_minus_second_rf_resid"] = float(best_rf_margin)
-                                agg["best_celltype_spearman_raw"] = _lower_celltype(best_s_raw)
-                                agg["best_celltype_spearman_raw_value"] = float(best_s_raw_val)
-                                agg["best_minus_second_spearman_raw"] = float(best_s_raw_margin)
-                                agg["best_celltype_spearman_linear_resid"] = _lower_celltype(best_s_lin)
-                                agg["best_celltype_spearman_linear_resid_value"] = float(best_s_lin_val)
-                                agg["best_minus_second_spearman_linear_resid"] = float(best_s_lin_margin)
-                                agg["best_celltype_pearson_local_score"] = _lower_celltype(best_p_score)
-                                agg["best_celltype_pearson_local_score_value"] = float(best_p_score_val)
-                                agg["best_minus_second_pearson_local_score"] = float(best_p_score_margin)
-                                agg["best_celltype_spearman_local_score"] = _lower_celltype(best_s_score)
-                                agg["best_celltype_spearman_local_score_value"] = float(best_s_score_val)
-                                agg["best_minus_second_spearman_local_score"] = float(best_s_score_margin)
-
-                                agg["rf_perm_importances_mean_json"] = json.dumps(
-                                    aggregate_dict_column(chrom_df, "rf_perm_importances_json",
-                                                          "n_bins_valid_rf_features")
-                                )
-                                agg["rf_feature_sign_corr_mean_json"] = json.dumps(
-                                    aggregate_dict_column(chrom_df, "rf_feature_sign_corr_json",
-                                                          "n_bins_valid_rf_features")
-                                )
-                                agg["ridge_coef_mean_json"] = json.dumps(
-                                    aggregate_dict_column(chrom_df, "ridge_coef_json", "n_bins_valid_rf_features")
-                                )
-                                agg["rf_r2_mean_weighted"] = weighted_mean(
-                                    chrom_df["rf_r2"].to_numpy(dtype=float),
-                                    chrom_df["n_bins_valid_rf_features"].to_numpy(dtype=float),
-                                )
-                                agg["ridge_r2_mean_weighted"] = weighted_mean(
-                                    chrom_df["ridge_r2"].to_numpy(dtype=float),
-                                    chrom_df["n_bins_valid_rf_features"].to_numpy(dtype=float),
-                                )
-
-                                rf_perm_means = json.loads(agg["rf_perm_importances_mean_json"])
-                                acc_perm = {
-                                    k: v for k, v in rf_perm_means.items()
-                                    if k.startswith(f"{accessibility_prefix}_")
-                                }
-                                if acc_perm:
-                                    top_feature = max(acc_perm.items(), key=lambda kv: kv[1])
-                                    agg["rf_top_celltype_feature_perm"] = top_feature[0].replace(
-                                        f"{accessibility_prefix}_",
-                                        "",
-                                    )
-                                    agg["rf_top_celltype_importance_perm"] = float(top_feature[1])
-                                else:
-                                    agg["rf_top_celltype_feature_perm"] = None
-                                    agg["rf_top_celltype_importance_perm"] = float("nan")
-
-                                agg.update(
-                                    compute_derived_fields(
-                                        agg,
-                                        accessibility_prefix=accessibility_prefix,
-                                    )
-                                )
-                                is_correct = agg.get("is_correct_pearson_local_score")
-                                if is_correct is True:
-                                    correct_counts["true"] += 1
-                                elif is_correct is False:
-                                    correct_counts["false"] += 1
-                                else:
-                                    correct_counts["none"] += 1
-                                top_feat = agg.get("rf_top_feature_perm")
-                                if top_feat:
-                                    rf_top_feature_counts[top_feat] = rf_top_feature_counts.get(top_feat, 0) + 1
-
-                                rows.append(agg)
-
-                                out_paths = {
-                                    "config": _relpath(run_dir / "config.json"),
-                                    "chrom_sum": _relpath(run_dir / "chrom_summary.csv"),
-                                    "per_bin": _relpath(run_dir / "per_bin.csv") if save_per_bin else "skipped",
-                                    "results": _relpath(out_dir / "results.csv"),
-                                }
-
-                                summarise_run(
-                                    logger,
-                                    n_bins_total=int(agg["n_bins_total"]),
-                                    n_mutations_total=int(agg["n_mutations_total"]),
-                                    correct_celltypes=str(agg.get("correct_celltypes") or ""),
-                                    metric_summaries=[
-                                        (
-                                            "Pearson r",
-                                            agg.get("best_celltype_raw"),
-                                            float(agg.get("best_celltype_raw_value", float("nan"))),
-                                        ),
-                                        (
-                                            "Pearson r (linear covariate)"
-                                            if covs
-                                            else "Pearson r (no covariates)",
-                                            agg.get("best_celltype_linear_resid"),
-                                            float(agg.get("best_celltype_linear_resid_value", float("nan"))),
-                                        ),
-                                        (
-                                            "Spearman r",
-                                            agg.get("best_celltype_spearman_raw"),
-                                            float(agg.get("best_celltype_spearman_raw_value", float("nan"))),
-                                        ),
-                                        (
-                                            "Spearman r (linear covariate)"
-                                            if covs
-                                            else "Spearman r (no covariates)",
-                                            agg.get("best_celltype_spearman_linear_resid"),
-                                            float(
-                                                agg.get(
-                                                    "best_celltype_spearman_linear_resid_value", float("nan")
-                                                )
-                                            ),
-                                        ),
-                                        (
-                                            "Local score (pearson, linear covariate)"
-                                            if covs
-                                            else "Local score (pearson, no covariates)",
-                                            agg.get("best_celltype_pearson_local_score"),
-                                            float(
-                                                agg.get(
-                                                    "best_celltype_pearson_local_score_value", float("nan")
-                                                )
-                                            ),
-                                        ),
-                                        (
-                                            "Local score (spearman, linear covariate)"
-                                            if covs
-                                            else "Local score (spearman, no covariates)",
-                                            agg.get("best_celltype_spearman_local_score"),
-                                            float(
-                                                agg.get(
-                                                    "best_celltype_spearman_local_score_value", float("nan")
-                                                )
-                                            ),
-                                        ),
-                                        (
-                                            "RF (non-linear covariate)" if covs else "RF (no covariates)",
-                                            agg.get("best_celltype_rf_resid"),
-                                            float(agg.get("best_celltype_rf_resid_value", float("nan"))),
-                                        ),
-                                    ],
-                                    out_paths=out_paths,
-                                )
-
-                                # save run summaries
-                                save_df(chrom_df, run_dir / "chrom_summary.csv")
-
-                                if save_per_bin and per_bin_parts:
-                                    per_bin_df = pd.concat(per_bin_parts, ignore_index=True)
-                                    save_df(per_bin_df, run_dir / "per_bin.csv")
-
-                                results_columns = _append_results_row(
-                                    results_path,
-                                    agg,
-                                    results_columns,
-                                )
-                                completed_run_ids.add(str(run_id))
-                                elapsed = time.perf_counter() - t0
-                                logger.info("Run end %s (%s)", run_id, f"{elapsed:.1f}s")
+                    results_columns = _append_results_row(
+                        results_path,
+                        agg,
+                        results_columns,
+                    )
+                    completed_run_ids.add(str(run_id))
+                    elapsed = time.perf_counter() - t0
+                    logger.info("Run end %s (%s)", run_id, f"{elapsed:.1f}s")
 
     results = pd.DataFrame(rows)
     if existing_results_df is not None:
@@ -1995,6 +2137,7 @@ def resume_experiment(out_dir: str | Path) -> pd.DataFrame:
         base_seed=base_seed,
         track_strategies=track_strategies,
         covariate_sets=covariate_sets,
+        explicit_setups=params.get("explicit_setups"),
         include_trinuc=params.get("include_trinuc", False),
         chroms=params.get("chroms"),
         standardise_tracks=params.get("standardise_tracks", True),

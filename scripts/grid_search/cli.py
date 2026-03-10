@@ -63,11 +63,11 @@ def main() -> None:
 
     parser.add_argument("--out-dir", type=str, default="outputs/experiments/run1", help="Output directory")
     parser.add_argument("--base-seed", type=int, default=123)
-    parser.add_argument("--n-resamples", type=int, default=3, help="Number of resamples per k_samples entry")
+    parser.add_argument("--n-resamples", type=int, default=1, help="Number of resamples per k_samples entry")
     parser.add_argument(
         "--k-samples",
         type=str,
-        default="1,5,10,20,all",
+        default="1",
         help="Comma list of cohort sizes; use 'all' for full cohort",
     )
     parser.add_argument(
@@ -260,6 +260,15 @@ def main() -> None:
         default="gc+cpg,gc+cpg+timing",
         help="Semicolon-separated sets; each set is + separated. Example: gc+cpg;gc+cpg+timing",
     )
+    parser.add_argument(
+        "--explicit-setups-json",
+        type=str,
+        default=None,
+        help=(
+            "JSON list of explicit run setups. When set, only these setups are run "
+            "(no Cartesian expansion across grids)."
+        ),
+    )
     parser.add_argument("--include-trinuc", action="store_true", help="Include small trinuc feature set")
     parser.add_argument(
         "--chroms",
@@ -369,6 +378,12 @@ def main() -> None:
         if not group:
             continue
         covariate_sets.append([c.strip() for c in group.split("+") if c.strip()])
+    explicit_setups: Optional[List[Dict[str, object]]] = None
+    if args.explicit_setups_json:
+        parsed = json.loads(args.explicit_setups_json)
+        if not isinstance(parsed, list):
+            raise ValueError("--explicit-setups-json must decode to a JSON list.")
+        explicit_setups = parsed
 
     chroms = None
     if args.chroms:
@@ -441,6 +456,7 @@ def main() -> None:
         base_seed=args.base_seed,
         track_strategies=track_strategies,
         covariate_sets=covariate_sets,
+        explicit_setups=explicit_setups,
         include_trinuc=bool(args.include_trinuc),
         downsample_counts=args.downsample,
         chroms=chroms,

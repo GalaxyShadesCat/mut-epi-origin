@@ -10,23 +10,13 @@ pip install -r requirements.txt
 
 If `conda activate` fails, run `conda init` once and restart your shell.
 
-## Streamlit apps
+## LIHC data pipeline (metadata -> QC -> transfer -> SNV table)
 
-Track Visualisation:
+Run the steps in this order to build the LIHC SNV mutation table.
 
-```bash
-streamlit run tools/track_visualisation.py
-```
+### Step 1: Build master metadata
 
-Results Dashboard:
-
-```bash
-streamlit run tools/results_dashboard/run.py
-```
-
-## Build master metadata
-
-Build the LIHC-focused master metadata table with harmonised alcohol, virus, obesity, and fibrosis fields:
+Script: `scripts/build_master_metadata.py`
 
 ```bash
 python scripts/build_master_metadata.py
@@ -35,9 +25,9 @@ python scripts/build_master_metadata.py
 Output:
 - `data/derived/master_sample_metadata.csv`
 
-## QC LIHC cohort
+### Step 2: QC and cohort filtering
 
-Run QC/cleaning on `master_sample_metadata.csv`, including fibrosis filtering and missingness logs for alcohol/virus/obesity:
+Script: `scripts/qc_lihc_cohort.py`
 
 ```bash
 python scripts/qc_lihc_cohort.py
@@ -49,29 +39,74 @@ Outputs:
 - `data/derived/master_sample_metadata_rows_with_issues.csv`
 - `data/derived/master_sample_metadata_qc_report.txt`
 
-## Important considerations
+### Step 3: Transfer complete-case VCFs and build VCF candidate manifest
 
-- **Project focus**: downstream cohort outputs are restricted to `TCGA-LIHC`.
-- **Fibrosis source of truth**: fibrosis uses the clinical Ishak field from `clinical.tsv` (case-level aggregated), then standardised to:
-  - `0 - No Fibrosis`
-  - `1,2 - Portal Fibrosis`
-  - `3,4 - Fibrous Septa`
-  - `5 - Nodular Formation and Incomplete Cirrhosis`
-  - `6 - Established Cirrhosis`
-- **Virus harmonisation**:
-  - HBV/HCV use `data/raw/annotations/mmc1.xlsx` consensus calls first (`HBV_consensus`, `HCV_consensus`) when available.
-  - If consensus is missing, fallback uses `Hepatitis B/C`, then annotation evidence from clinical matrix fields.
-- **Obesity standardisation**:
-  - `bmi_final` prioritises BMI calculated from height/weight.
-  - If unavailable, `data/raw/annotations/mmc1.xlsx` BMI is used as fallback.
-  - Final obesity class is derived from BMI using WHO classes:
-    - `Underweight`, `Normal`, `Overweight`, `Obesity Class I`, `Obesity Class II`, `Obesity Class III`.
-- **QC fibrosis cohort filter** (`master_sample_metadata_lihc_fibrosis.csv`):
-  - LIHC only
-  - non-missing fibrosis
-  - `primary_diagnosis` in:
-    - `Hepatocellular carcinoma, NOS`
-    - `Hepatocellular carcinoma, clear cell type`
-  - `tumour_sample_type == Primary Tumor`
-- **Complete-case definition**: a row is treated as complete when all of these are non-missing:
-  - `alcohol_status`, `hbv_status`, `hcv_status`, `nafld_status`, `obesity_class`, `fibrosis_ishak_score`.
+Script: `scripts/transfer_lihc_vcfs.sh`
+
+Dry run first:
+
+```bash
+bash scripts/transfer_lihc_vcfs.sh --test
+```
+
+Then run the actual transfer:
+
+```bash
+bash scripts/transfer_lihc_vcfs.sh
+```
+
+Key outputs:
+- `data/derived/manifests/lihc_tumour_vcf_candidates.tsv`
+- `data/raw/WGS_TCGA25/AtoL/VCF/` (mirrored VCF files and index sidecars, including `.vcf.gz.tbi`)
+
+### Step 4: Build the SNV mutation table
+
+Script: `scripts/build_snv_mutation_table.py`
+
+```bash
+python scripts/build_snv_mutation_table.py
+```
+
+Output:
+- `data/raw/mutations/lihc_snv_mutation_table.tsv`
+
+### Dependency chain
+
+`scripts/build_master_metadata.py` -> `data/derived/master_sample_metadata.csv`  
+`scripts/qc_lihc_cohort.py` -> `data/derived/master_sample_metadata_lihc_fibrosis.csv`  
+`scripts/transfer_lihc_vcfs.sh` -> `data/derived/manifests/lihc_tumour_vcf_candidates.tsv` + `data/raw/WGS_TCGA25/AtoL/VCF/`  
+`scripts/build_snv_mutation_table.py` -> `data/raw/mutations/lihc_snv_mutation_table.tsv`
+
+### Notes on cohort logic
+
+- Project focus is `TCGA-LIHC`.
+- Fibrosis source of truth is the clinical Ishak field from `clinical.tsv` (case-level aggregated).
+- HBV/HCV harmonisation uses `data/raw/annotations/mmc1.xlsx` consensus calls first, then fallback fields.
+- Obesity class is derived from BMI using WHO categories.
+- Complete-case rows require non-missing:
+  - `alcohol_status`
+  - `hbv_status`
+  - `hcv_status`
+  - `nafld_status`
+  - `obesity_class`
+  - `fibrosis_ishak_score`
+
+## Grid search
+
+For a full, practical guide to the mutation-vs-accessibility grid search runner (inputs, outputs, configuration modes, explicit setups, and resume workflow), see:
+
+- [`scripts/grid_search/README.md`](scripts/grid_search/README.md)
+
+## Streamlit apps
+
+Track visualisation:
+
+```bash
+streamlit run tools/track_visualisation.py
+```
+
+Results dashboard:
+
+```bash
+streamlit run tools/results_dashboard/run.py
+```
