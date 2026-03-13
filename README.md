@@ -10,11 +10,24 @@ pip install -r requirements.txt
 
 If `conda activate` fails, run `conda init` once and restart your shell.
 
-## LIHC data pipeline (metadata -> QC -> transfer -> SNV table)
+## LIHC data pipeline (ATAC pseudobulk -> metadata -> QC -> transfer -> SNV table -> grid search)
 
-Run the steps in this order to build the LIHC SNV mutation table.
+Run the steps in this order to build the LIHC SNV mutation table and run mutation-vs-accessibility grid search.
 
-### Step 1: Build master metadata
+### Step 1: Build ATAC pseudobulk bigWig tracks
+
+Script: `scripts/make_atac_pseudobulk.R`
+
+```bash
+Rscript scripts/make_atac_pseudobulk.R
+```
+
+Important:
+- Requires external command-line tools in `PATH`: `bedGraphToBigWig`, `liftOver`, `bedtools`, `sort`, `gzip`, `gunzip`.
+- Uses the multiome Seurat object at `data/raw/multiome/GSE281574_Liver_Multiome_Seurat_GEO.rds`.
+- Produces hg38 and hg19 bigWig tracks plus QC summaries under `data/processed/ATAC-seq/GSE281574/`.
+
+### Step 2: Build master metadata
 
 Script: `scripts/build_master_metadata.py`
 
@@ -25,7 +38,7 @@ python scripts/build_master_metadata.py
 Output:
 - `data/derived/master_sample_metadata.csv`
 
-### Step 2: QC and cohort filtering
+### Step 3: QC and cohort filtering
 
 Script: `scripts/qc_lihc_cohort.py`
 
@@ -39,7 +52,7 @@ Outputs:
 - `data/derived/master_sample_metadata_rows_with_issues.csv`
 - `data/derived/master_sample_metadata_qc_report.txt`
 
-### Step 3: Transfer complete-case VCFs and build VCF candidate manifest
+### Step 4: Transfer complete-case VCFs and build VCF candidate manifest
 
 Script: `scripts/transfer_lihc_vcfs.sh`
 
@@ -59,7 +72,7 @@ Key outputs:
 - `data/derived/manifests/lihc_tumour_vcf_candidates.tsv`
 - `data/raw/WGS_TCGA25/AtoL/VCF/` (mirrored VCF files and index sidecars, including `.vcf.gz.tbi`)
 
-### Step 4: Build the SNV mutation table
+### Step 5: Build the SNV mutation table
 
 Script: `scripts/build_snv_mutation_table.py`
 
@@ -70,12 +83,34 @@ python scripts/build_snv_mutation_table.py
 Output:
 - `data/raw/mutations/lihc_snv_mutation_table.tsv`
 
-### Dependency chain
+### Step 6: Run mutation-vs-accessibility grid search
 
-`scripts/build_master_metadata.py` -> `data/derived/master_sample_metadata.csv`  
-`scripts/qc_lihc_cohort.py` -> `data/derived/master_sample_metadata_lihc_fibrosis.csv`  
-`scripts/transfer_lihc_vcfs.sh` -> `data/derived/manifests/lihc_tumour_vcf_candidates.tsv` + `data/raw/WGS_TCGA25/AtoL/VCF/`  
-`scripts/build_snv_mutation_table.py` -> `data/raw/mutations/lihc_snv_mutation_table.tsv`
+Entry point:
+- `python -m scripts.grid_search.cli ...`
+
+Minimum inputs:
+- `--mut-path data/raw/mutations/lihc_snv_mutation_table.tsv`
+- ATAC map via `--atac-map-path` or inline mapping via `--dnase-map-json`
+- `--fai-path data/raw/reference/GRCh37.fa.fai`
+- `--fasta-path data/raw/reference/GRCh37.fa`
+
+Output directory:
+- `outputs/experiments/<run_name>/`
+- Includes `results.csv`, run configs, and resume commands.
+
+### Dependency flow (quick view)
+
+Grid search needs two inputs:
+- Accessibility tracks (ATAC, hg19)
+- Mutation table (LIHC SNVs)
+
+Flow:
+1. `scripts/make_atac_pseudobulk.R`
+: builds `data/processed/ATAC-seq/GSE281574/hg19/*.bigWig`
+2. `scripts/build_master_metadata.py` -> `scripts/qc_lihc_cohort.py` -> `scripts/transfer_lihc_vcfs.sh` -> `scripts/build_snv_mutation_table.py`
+: builds `data/raw/mutations/lihc_snv_mutation_table.tsv`
+3. `python -m scripts.grid_search.cli`
+: consumes both inputs above and writes `outputs/experiments/<run_name>/results.csv` plus `outputs/experiments/<run_name>/runs/`
 
 ### Notes on cohort logic
 
