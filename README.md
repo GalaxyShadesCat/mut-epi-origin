@@ -10,9 +10,9 @@ pip install -r requirements.txt
 
 If `conda activate` fails, run `conda init` once and restart your shell.
 
-## LIHC data pipeline (ATAC pseudobulk -> metadata -> QC -> transfer -> SNV table -> grid search)
+## LIHC data pipeline (ATAC pseudobulk -> metadata -> QC -> transfer -> SNV table -> grid search -> state-score validation)
 
-Run the steps in this order to build the LIHC SNV mutation table and run mutation-vs-accessibility grid search.
+Run the steps in this order to build the LIHC SNV mutation table, run mutation-vs-accessibility grid search, and validate inferred state scores.
 
 ### Step 1: Build ATAC pseudobulk bigWig tracks
 
@@ -98,6 +98,30 @@ Output directory:
 - `outputs/experiments/<run_name>/`
 - Includes `results.csv`, run configs, and resume commands.
 
+### Step 7: Validate inferred state scores against metadata
+
+Script: `scripts/validate_state_scores.py`
+
+For the 3-state setup:
+
+```bash
+python scripts/validate_state_scores.py \
+  --experiment-name YOUR_EXPERIMENT \
+  --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
+  --state-suffixes normal,ac,ah \
+  --allow-aggregated-results
+```
+
+For the 2-state FOXA2 setup:
+
+```bash
+python scripts/validate_state_scores.py \
+  --experiment-name lihc_foxa2_top4 \
+  --state-labels foxa2_normal_pos,foxa2_abnormal_zero \
+  --state-suffixes foxa2_normal_pos,foxa2_abnormal_zero \
+  --allow-aggregated-results
+```
+
 ### Dependency flow (quick view)
 
 Grid search needs two inputs:
@@ -111,6 +135,8 @@ Flow:
 : builds `data/raw/mutations/lihc_snv_mutation_table.tsv`
 3. `python -m scripts.grid_search.cli`
 : consumes both inputs above and writes `outputs/experiments/<run_name>/results.csv` plus `outputs/experiments/<run_name>/runs/`
+4. `python scripts/validate_state_scores.py ...`
+: consumes `outputs/experiments/<run_name>/results.csv` and `data/derived/master_sample_metadata_lihc_fibrosis.csv`
 
 ### Notes on cohort logic
 

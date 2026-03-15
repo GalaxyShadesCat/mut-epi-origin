@@ -120,7 +120,7 @@ python -m scripts.grid_search.cli \
   --dnase-map-json '{"hepatocyte_ac":"data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__AC.bigWig","hepatocyte_ah":"data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__AH.bigWig","hepatocyte_normal":"data/processed/ATAC-seq/GSE281574/hg19/Hepatocyte__Normal.bigWig"}' \
   --timing-bw data/raw/timing/repliSeq_SknshWaveSignalRep1.bigWig \
   --covariate-sets "gc+cpg+timing" \
-  --out-dir outputs/experiments/lihc_top5 \
+  --out-dir outputs/experiments/lihc_top4 \
   --explicit-setups-json '[{"track_strategy":"counts_raw","bin_size":500000,"covariates":["gc","cpg","timing"]},{"track_strategy":"counts_raw","bin_size":1000000,"covariates":["gc","cpg","timing"]},{"track_strategy":"exp_decay","bin_size":500000,"exp_decay_bp":200000,"exp_max_distance_bp":1000000,"covariates":["gc","cpg","timing"]},{"track_strategy":"exp_decay","bin_size":1000000,"exp_decay_bp":200000,"exp_max_distance_bp":1000000,"covariates":["gc","cpg","timing"]}]'
 ```
 
@@ -188,6 +188,30 @@ The modelling outputs now include `feature_set`:
 
 This enables direct assessment of whether chromatin adds predictive value over
 clinical covariates alone.
+
+## Post-run state-score validation
+
+Use `validate_state_scores.py` to validate inferred state scores against clinical metadata.
+
+3-state setup:
+
+```bash
+python scripts/validate_state_scores.py \
+  --experiment-name YOUR_EXPERIMENT \
+  --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
+  --state-suffixes normal,ac,ah \
+  --allow-aggregated-results
+```
+
+2-state FOXA2 setup:
+
+```bash
+python scripts/validate_state_scores.py \
+  --experiment-name YOUR_EXPERIMENT \
+  --state-labels normal_FOXA2_pos,abnormal_FOXA2_zero \
+  --state-suffixes normal_FOXA2_pos,abnormal_FOXA2_zero \
+  --allow-aggregated-results
+```
 
 Model hyperparameter grids used by `score_clinvar_grid.py`:
 
