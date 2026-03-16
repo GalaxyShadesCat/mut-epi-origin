@@ -29,6 +29,18 @@ python scripts/validate_state_scores.py \
   --state-labels normal_FOXA2_pos,abnormal_FOXA2_zero \
   --state-suffixes normal_FOXA2_pos,abnormal_FOXA2_zero \
   --allow-aggregated-results
+
+NAFLD-focused run:
+python scripts/validate_state_scores.py \
+  --experiment-name my_experiment_nafld \
+  --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
+  --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
+  --state-suffixes normal,ac,ah \
+  --modelling-targets nafld_status \
+  --group-test-vars nafld_status,obesity_class \
+  --correlation-vars nafld_status \
+  --covariate-cols alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class \
+  --allow-aggregated-results
 """
 
 from __future__ import annotations
@@ -72,7 +84,7 @@ SCORING_COLUMN_TEMPLATES: Dict[str, str] = {
     "spearman_r_linear_resid": "spearman_r_linear_resid_{cell}_mean_weighted",
 }
 
-GROUP_TEST_METADATA_VARS: List[str] = [
+DEFAULT_GROUP_TEST_METADATA_VARS: List[str] = [
     "alcohol_status",
     "hbv_status",
     "hcv_status",
@@ -81,9 +93,9 @@ GROUP_TEST_METADATA_VARS: List[str] = [
     "fibrosis_present",
 ]
 
-CORRELATION_METADATA_VARS: List[str] = ["fibrosis_ishak_score"]
+DEFAULT_CORRELATION_METADATA_VARS: List[str] = ["fibrosis_ishak_score"]
 
-MODELLING_TARGETS: List[str] = [
+DEFAULT_MODELLING_TARGETS: List[str] = [
     "fibrosis_ishak_score",
     "fibrosis_present",
     "alcohol_status",
@@ -92,7 +104,7 @@ MODELLING_TARGETS: List[str] = [
     "nafld_status",
 ]
 
-COVARIATE_COLUMNS: List[str] = [
+DEFAULT_COVARIATE_COLUMNS: List[str] = [
     "alcohol_status",
     "hbv_status",
     "hcv_status",
@@ -102,13 +114,14 @@ COVARIATE_COLUMNS: List[str] = [
     "fibrosis_ishak_score",
 ]
 
-REQUIRED_METADATA_COLUMNS: List[str] = [
-    "fibrosis_ishak_score",
+KNOWN_METADATA_COLUMNS: List[str] = [
     "alcohol_status",
     "hbv_status",
     "hcv_status",
     "nafld_status",
     "obesity_class",
+    "fibrosis_ishak_score",
+    "fibrosis_present",
 ]
 
 GROUP_TEST_COLUMNS: List[str] = [
@@ -270,6 +283,26 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated scoring systems to analyse.",
     )
     parser.add_argument(
+        "--group-test-vars",
+        default=",".join(DEFAULT_GROUP_TEST_METADATA_VARS),
+        help="Comma-separated metadata variables used for group comparison tests. Use 'none' to disable.",
+    )
+    parser.add_argument(
+        "--correlation-vars",
+        default=",".join(DEFAULT_CORRELATION_METADATA_VARS),
+        help="Comma-separated metadata variables used for correlation tests. Use 'none' to disable.",
+    )
+    parser.add_argument(
+        "--modelling-targets",
+        default=",".join(DEFAULT_MODELLING_TARGETS),
+        help="Comma-separated metadata targets used in predictive modelling. Use 'none' to disable.",
+    )
+    parser.add_argument(
+        "--covariate-cols",
+        default=",".join(DEFAULT_COVARIATE_COLUMNS),
+        help="Comma-separated metadata covariate columns used by modelling feature sets. Use 'none' to disable.",
+    )
+    parser.add_argument(
         "--state-labels",
         required=True,
         help=(
@@ -330,6 +363,15 @@ def ensure_scoring_systems(raw_value: str) -> List[str]:
             + ", ".join(SCORING_COLUMN_TEMPLATES.keys())
         )
     return systems
+
+
+def parse_csv_list(raw_value: str, label: str) -> List[str]:
+    if raw_value.strip().lower() in {"none", "off"}:
+        return []
+    values = [value.strip() for value in raw_value.split(",") if value.strip()]
+    if not values:
+        raise ValueError(f"No values were provided for {label}.")
+    return values
 
 
 def parse_state_config(labels_raw: str, suffixes_raw: str) -> List[Tuple[str, str]]:
@@ -423,28 +465,42 @@ def _parse_selected_sample_ids(value: Any) -> List[str]:
 
 
 def _derive_config_id(results_df: pd.DataFrame) -> pd.Series:
+    if "track_strategy" in results_df.columns:
+        strategy = results_df["track_strategy"].fillna("NA").astype(str).str.strip()
+
+        strategy_bin_cols = [
+            "counts_raw_bin",
+            "counts_gauss_bin",
+            "inv_dist_gauss_bin",
+            "exp_decay_bin",
+            "exp_decay_adaptive_bin",
+        ]
+        generic_bin_col = "bin_size" if "bin_size" in results_df.columns else None
+        bin_value = pd.Series(["NA"] * len(results_df), index=results_df.index, dtype="object")
+
+        if generic_bin_col is not None:
+            generic_bin = results_df[generic_bin_col].fillna("NA").astype(str).str.strip()
+            bin_value = generic_bin.copy()
+
+        available_strategy_bin_cols = [col for col in strategy_bin_cols if col in results_df.columns]
+        if available_strategy_bin_cols:
+            bin_lookup = results_df[available_strategy_bin_cols].copy()
+            for col in available_strategy_bin_cols:
+                bin_lookup[col] = bin_lookup[col].fillna("NA").astype(str).str.strip()
+
+            first_available_bin = bin_lookup.replace("NA", np.nan).bfill(axis=1).iloc[:, 0].fillna("NA")
+            if generic_bin_col is None:
+                bin_value = first_available_bin.copy()
+
+            for col in available_strategy_bin_cols:
+                strategy_name = col.removesuffix("_bin")
+                mask = strategy == strategy_name
+                bin_value.loc[mask] = bin_lookup.loc[mask, col]
+
+        return "track_strategy=" + strategy + "|bin_size=" + bin_value.astype(str).str.strip()
+
     if "config_id" in results_df.columns:
         return results_df["config_id"].astype(str).str.strip()
-
-    candidate_cols = [
-        "track_strategy",
-        "track_param_tag",
-        "covariates",
-        "counts_raw_bin",
-        "exp_decay_bin",
-        "exp_decay_decay_bp",
-        "exp_decay_max_distance_bp",
-    ]
-    available = [col for col in candidate_cols if col in results_df.columns]
-    if available:
-        parts = []
-        for col in available:
-            cleaned = results_df[col].fillna("NA").astype(str).str.strip()
-            parts.append(col + "=" + cleaned)
-        derived = parts[0]
-        for part in parts[1:]:
-            derived = derived + "|" + part
-        return derived
 
     if "run_id" in results_df.columns:
         return results_df["run_id"].astype(str).str.strip()
@@ -575,40 +631,52 @@ def parse_ishak_to_ordinal(value: Any) -> float:
     return np.nan
 
 
-def load_metadata(metadata_path: Path, sample_col: str) -> pd.DataFrame:
+def load_metadata(
+    metadata_path: Path,
+    sample_col: str,
+    requested_metadata_columns: Sequence[str],
+) -> pd.DataFrame:
     if not metadata_path.exists():
         raise FileNotFoundError(f"Metadata file not found: {metadata_path}")
     log(f"Loading metadata: {metadata_path}")
 
     metadata = pd.read_csv(metadata_path, dtype="object")
-    missing = [c for c in [sample_col] + REQUIRED_METADATA_COLUMNS if c not in metadata.columns]
-    if missing:
-        raise ValueError("Missing required metadata columns: " + ", ".join(missing))
+    if sample_col not in metadata.columns:
+        raise ValueError(f"Missing required metadata sample column: {sample_col}")
 
-    keep_cols = [sample_col] + REQUIRED_METADATA_COLUMNS
+    requested = [col for col in requested_metadata_columns if col != sample_col]
+    keep_cols = [sample_col] + [col for col in requested if col in metadata.columns]
     out = metadata[keep_cols].copy()
     out["sample"] = out[sample_col].astype(str).str.strip()
     out = out[out["sample"] != ""].copy()
     out.drop(columns=[sample_col], inplace=True)
 
-    for col in ["alcohol_status", "hbv_status", "hcv_status", "nafld_status", "obesity_class"]:
-        out[col] = out[col].map(_normalise_text)
+    for col in ["alcohol_status", "hbv_status", "hcv_status", "nafld_status", "obesity_class", "fibrosis_present"]:
+        if col in out.columns:
+            out[col] = out[col].map(_normalise_text)
 
-    out["fibrosis_ishak_score"] = out["fibrosis_ishak_score"].apply(parse_ishak_to_ordinal)
-    out["fibrosis_present"] = out["fibrosis_ishak_score"].apply(
-        lambda x: np.nan if pd.isna(x) else bool(x > 0.0)
-    )
+    if "fibrosis_ishak_score" in out.columns:
+        out["fibrosis_ishak_score"] = out["fibrosis_ishak_score"].apply(parse_ishak_to_ordinal)
+        if "fibrosis_present" not in out.columns:
+            out["fibrosis_present"] = out["fibrosis_ishak_score"].apply(
+                lambda x: np.nan if pd.isna(x) else bool(x > 0.0)
+            )
+
     out = out.drop_duplicates(subset=["sample"], keep="first")
     return out
 
 
-def run_group_tests(score_df: pd.DataFrame, score_features: Sequence[str]) -> pd.DataFrame:
+def run_group_tests(
+    score_df: pd.DataFrame,
+    score_features: Sequence[str],
+    metadata_vars: Sequence[str],
+) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     grouped = score_df.groupby(["config_id", "scoring_system"], dropna=False)
 
     for (config_id, scoring_system), sub in grouped:
         for score_feature in score_features:
-            for metadata_var in GROUP_TEST_METADATA_VARS:
+            for metadata_var in metadata_vars:
                 d = sub[[score_feature, metadata_var]].dropna().copy()
                 if d.empty:
                     continue
@@ -676,13 +744,17 @@ def run_group_tests(score_df: pd.DataFrame, score_features: Sequence[str]) -> pd
     return pd.DataFrame(rows, columns=GROUP_TEST_COLUMNS)
 
 
-def run_correlations(score_df: pd.DataFrame, score_features: Sequence[str]) -> pd.DataFrame:
+def run_correlations(
+    score_df: pd.DataFrame,
+    score_features: Sequence[str],
+    metadata_vars: Sequence[str],
+) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     grouped = score_df.groupby(["config_id", "scoring_system"], dropna=False)
 
     for (config_id, scoring_system), sub in grouped:
         for score_feature in score_features:
-            for metadata_var in CORRELATION_METADATA_VARS:
+            for metadata_var in metadata_vars:
                 d = sub[[score_feature, metadata_var]].dropna().copy()
                 if len(d) < 3:
                     continue
@@ -732,7 +804,11 @@ def add_score_contrasts(df: pd.DataFrame, state_config: Sequence[Tuple[str, str]
     return out, contrast_features
 
 
-def run_score_contrast_tests(score_df: pd.DataFrame, contrast_features: Sequence[str]) -> pd.DataFrame:
+def run_score_contrast_tests(
+    score_df: pd.DataFrame,
+    contrast_features: Sequence[str],
+    metadata_vars: Sequence[str],
+) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     grouped = score_df.groupby(["config_id", "scoring_system"], dropna=False)
 
@@ -740,7 +816,7 @@ def run_score_contrast_tests(score_df: pd.DataFrame, contrast_features: Sequence
         for contrast_feature in contrast_features:
             if contrast_feature not in sub.columns:
                 continue
-            for metadata_var in GROUP_TEST_METADATA_VARS:
+            for metadata_var in metadata_vars:
                 d = sub[[contrast_feature, metadata_var]].dropna().copy()
                 if d.empty:
                     continue
@@ -818,8 +894,9 @@ def _build_feature_sets(
     df: pd.DataFrame,
     target: str,
     state_score_cols: Sequence[str],
+    covariate_columns: Sequence[str],
 ) -> Dict[str, List[str]]:
-    covariate_cols = [col for col in COVARIATE_COLUMNS if col != target]
+    covariate_cols = [col for col in covariate_columns if col != target]
     feature_sets = {
         "chromatin_only": list(state_score_cols),
         "covariates_only": covariate_cols,
@@ -880,6 +957,8 @@ def _cv_for_target(y: pd.Series, target: str, max_folds: int, random_state: int)
 def run_predictive_models(
     score_df: pd.DataFrame,
     state_score_cols: Sequence[str],
+    modelling_targets: Sequence[str],
+    covariate_columns: Sequence[str],
     cv_folds: int,
     random_state: int,
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
@@ -940,11 +1019,16 @@ def run_predictive_models(
             f"{group_idx}/{total_groups}: config_id={config_id} | scoring_system={scoring_system}"
         )
 
-        for target in MODELLING_TARGETS:
+        for target in modelling_targets:
             if target not in group_df.columns:
                 continue
 
-            feature_sets = _build_feature_sets(group_df, target, state_score_cols)
+            feature_sets = _build_feature_sets(
+                group_df,
+                target,
+                state_score_cols,
+                covariate_columns,
+            )
             for feature_set_name, predictors in feature_sets.items():
                 x, y = _build_xy(group_df, target, predictors)
                 if len(x) < 2:
@@ -1158,13 +1242,14 @@ def _serialise_counts_and_proportions(table: pd.DataFrame) -> Tuple[str, str]:
 
 def run_label_association_tests(
     rankings_with_metadata: pd.DataFrame,
+    metadata_vars: Sequence[str],
     confidence_filter_name: str = "all",
 ) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     grouped = rankings_with_metadata.groupby(["config_id", "scoring_system"], dropna=False)
 
     for (config_id, scoring_system), sub in grouped:
-        for metadata_var in GROUP_TEST_METADATA_VARS:
+        for metadata_var in metadata_vars:
             needed = ["best_cell_state", metadata_var]
             if any(col not in sub.columns for col in needed):
                 continue
@@ -1225,6 +1310,7 @@ def run_label_association_tests(
 
 def run_label_one_vs_rest_tests(
     rankings_with_metadata: pd.DataFrame,
+    metadata_vars: Sequence[str],
     target_labels: Sequence[str],
     confidence_filter_name: str,
 ) -> pd.DataFrame:
@@ -1232,7 +1318,7 @@ def run_label_one_vs_rest_tests(
     grouped = rankings_with_metadata.groupby(["config_id", "scoring_system"], dropna=False)
 
     for (config_id, scoring_system), sub in grouped:
-        for metadata_var in GROUP_TEST_METADATA_VARS:
+        for metadata_var in metadata_vars:
             if metadata_var not in sub.columns or "best_cell_state" not in sub.columns:
                 continue
 
@@ -1350,10 +1436,24 @@ def main() -> None:
         raise NotADirectoryError(f"Experiment path is not a directory: {experiment_dir}")
 
     scoring_systems = ensure_scoring_systems(args.scoring_systems)
+    group_test_vars_requested = parse_csv_list(args.group_test_vars, "--group-test-vars")
+    correlation_vars_requested = parse_csv_list(args.correlation_vars, "--correlation-vars")
+    modelling_targets_requested = parse_csv_list(args.modelling_targets, "--modelling-targets")
+    covariate_cols_requested = parse_csv_list(args.covariate_cols, "--covariate-cols")
     state_config = parse_state_config(args.state_labels, args.state_suffixes)
     state_score_cols = ranking_score_columns(state_config)
     ranking_columns = ranking_output_columns(state_config)
     invert_scores = not args.no_invert_scores
+
+    requested_metadata_columns = list(
+        dict.fromkeys(
+            group_test_vars_requested
+            + correlation_vars_requested
+            + modelling_targets_requested
+            + covariate_cols_requested
+            + KNOWN_METADATA_COLUMNS
+        )
+    )
 
     log(f"Experiment directory: {experiment_dir}")
     log(f"Scoring systems: {', '.join(scoring_systems)}")
@@ -1368,10 +1468,35 @@ def main() -> None:
         allow_aggregated_results=args.allow_aggregated_results,
     )
 
-    metadata = load_metadata(Path(args.metadata_path), args.metadata_sample_col)
+    metadata = load_metadata(
+        metadata_path=Path(args.metadata_path),
+        sample_col=args.metadata_sample_col,
+        requested_metadata_columns=requested_metadata_columns,
+    )
     merged = sample_scores.merge(metadata, on="sample", how="inner")
     if merged.empty:
         raise ValueError("No overlapping samples between results.csv sample identifiers and metadata.")
+
+    available_metadata_cols = set(merged.columns)
+
+    group_test_vars = [col for col in group_test_vars_requested if col in available_metadata_cols]
+    correlation_vars = [col for col in correlation_vars_requested if col in available_metadata_cols]
+    modelling_targets = [col for col in modelling_targets_requested if col in available_metadata_cols]
+    covariate_cols = [col for col in covariate_cols_requested if col in available_metadata_cols]
+
+    skipped_group = [col for col in group_test_vars_requested if col not in group_test_vars]
+    skipped_corr = [col for col in correlation_vars_requested if col not in correlation_vars]
+    skipped_targets = [col for col in modelling_targets_requested if col not in modelling_targets]
+    skipped_covars = [col for col in covariate_cols_requested if col not in covariate_cols]
+
+    if skipped_group:
+        log("Skipping missing group-test variables: " + ", ".join(skipped_group))
+    if skipped_corr:
+        log("Skipping missing correlation variables: " + ", ".join(skipped_corr))
+    if skipped_targets:
+        log("Skipping missing modelling targets: " + ", ".join(skipped_targets))
+    if skipped_covars:
+        log("Skipping missing covariate columns: " + ", ".join(skipped_covars))
 
     log(
         "Merged modelling rows: "
@@ -1380,17 +1505,19 @@ def main() -> None:
     )
 
     log("Running group comparison tests...")
-    group_tests = run_group_tests(merged, state_score_cols)
+    group_tests = run_group_tests(merged, state_score_cols, group_test_vars)
     log(f"Completed group comparison tests: {len(group_tests)} rows")
 
     log("Running correlation tests...")
-    correlations = run_correlations(merged, state_score_cols)
+    correlations = run_correlations(merged, state_score_cols, correlation_vars)
     log(f"Completed correlation tests: {len(correlations)} rows")
 
     log("Running predictive validation models...")
     model_summary, model_predictions, feature_importance = run_predictive_models(
         merged,
         state_score_cols=state_score_cols,
+        modelling_targets=modelling_targets,
+        covariate_columns=covariate_cols,
         cv_folds=args.cv_folds,
         random_state=args.random_state,
     )
@@ -1403,12 +1530,17 @@ def main() -> None:
     merged_with_contrasts, contrast_features = add_score_contrasts(merged, state_config)
 
     log("Running score contrast tests...")
-    score_contrast_tests = run_score_contrast_tests(merged_with_contrasts, contrast_features)
+    score_contrast_tests = run_score_contrast_tests(
+        merged_with_contrasts,
+        contrast_features,
+        group_test_vars,
+    )
     log(f"Completed score contrast tests: {len(score_contrast_tests)} rows")
 
     log("Running label association tests on all assignments...")
     label_assoc_all = run_label_association_tests(
         rankings_with_metadata,
+        metadata_vars=group_test_vars,
         confidence_filter_name="all",
     )
     log(f"Completed label association tests (all): {len(label_assoc_all)} rows")
@@ -1423,6 +1555,7 @@ def main() -> None:
     )
     label_assoc_confident = run_label_association_tests(
         rankings_confident,
+        metadata_vars=group_test_vars,
         confidence_filter_name=f"score_gap_ge_{args.score_gap_threshold:.2f}",
     )
     log(f"Completed label association tests (confident-only): {len(label_assoc_confident)} rows")
@@ -1431,11 +1564,13 @@ def main() -> None:
     log("Running one-vs-rest label association tests...")
     label_ovr_all = run_label_one_vs_rest_tests(
         rankings_with_metadata,
+        metadata_vars=group_test_vars,
         target_labels=target_labels,
         confidence_filter_name="all",
     )
     label_ovr_confident = run_label_one_vs_rest_tests(
         rankings_confident,
+        metadata_vars=group_test_vars,
         target_labels=target_labels,
         confidence_filter_name=f"score_gap_ge_{args.score_gap_threshold:.2f}",
     )

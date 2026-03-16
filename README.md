@@ -48,11 +48,14 @@ python scripts/qc_lihc_cohort.py
 
 Outputs:
 - `data/derived/master_sample_metadata_cleaned.csv`
+- `data/derived/master_sample_metadata_lihc_all.csv`
 - `data/derived/master_sample_metadata_lihc_fibrosis.csv`
+- `data/derived/master_sample_metadata_lihc_nafld.csv`
+- `data/derived/master_sample_metadata_lihc_hcv.csv`
 - `data/derived/master_sample_metadata_rows_with_issues.csv`
 - `data/derived/master_sample_metadata_qc_report.txt`
 
-### Step 4: Transfer complete-case VCFs and build VCF candidate manifest
+### Step 4: Transfer VCFs and build VCF candidate manifest
 
 Script: `scripts/transfer_lihc_vcfs.sh`
 
@@ -68,8 +71,29 @@ Then run the actual transfer:
 bash scripts/transfer_lihc_vcfs.sh
 ```
 
+By default, this step does not enforce additional complete-case filtering beyond
+the metadata file you provide.
+
+NAFLD-oriented transfer (keeps fibrosis optional):
+
+```bash
+bash scripts/transfer_lihc_vcfs.sh \
+  --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv \
+  --cohort-label nafld
+```
+
+If you want strict complete-case filtering, set it explicitly:
+
+```bash
+bash scripts/transfer_lihc_vcfs.sh \
+  --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv \
+  --cohort-label nafld \
+  --required-complete-fields alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class
+```
+
 Key outputs:
-- `data/derived/manifests/lihc_tumour_vcf_candidates.tsv`
+- `data/derived/manifests/lihc_tumour_vcf_candidates.tsv` (default fibrosis cohort)
+- `data/derived/manifests/lihc_tumour_vcf_candidates_<cohort_label>.tsv` (custom cohort label, e.g. `nafld`)
 - `data/raw/WGS_TCGA25/AtoL/VCF/` (mirrored VCF files and index sidecars, including `.vcf.gz.tbi`)
 
 ### Step 5: Build the SNV mutation table
@@ -112,6 +136,21 @@ python scripts/validate_state_scores.py \
   --allow-aggregated-results
 ```
 
+For a NAFLD-focused validation run (fibrosis columns optional):
+
+```bash
+python scripts/validate_state_scores.py \
+  --experiment-name YOUR_EXPERIMENT \
+  --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
+  --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
+  --state-suffixes normal,ac,ah \
+  --modelling-targets nafld_status \
+  --correlation-vars nafld_status \
+  --group-test-vars nafld_status,obesity_class \
+  --covariate-cols alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class \
+  --allow-aggregated-results
+```
+
 For the 2-state FOXA2 setup:
 
 ```bash
@@ -136,7 +175,7 @@ Flow:
 3. `python -m scripts.grid_search.cli`
 : consumes both inputs above and writes `outputs/experiments/<run_name>/results.csv` plus `outputs/experiments/<run_name>/runs/`
 4. `python scripts/validate_state_scores.py ...`
-: consumes `outputs/experiments/<run_name>/results.csv` and `data/derived/master_sample_metadata_lihc_fibrosis.csv`
+: consumes `outputs/experiments/<run_name>/results.csv` and a chosen metadata cohort file (default `data/derived/master_sample_metadata_lihc_fibrosis.csv`)
 
 ### Notes on cohort logic
 
@@ -144,13 +183,32 @@ Flow:
 - Fibrosis source of truth is the clinical Ishak field from `clinical.tsv` (case-level aggregated).
 - HBV/HCV harmonisation uses `data/raw/annotations/mmc1.xlsx` consensus calls first, then fallback fields.
 - Obesity class is derived from BMI using WHO categories.
-- Complete-case rows require non-missing:
+- Default fibrosis complete-case rows require non-missing:
   - `alcohol_status`
   - `hbv_status`
   - `hcv_status`
   - `nafld_status`
   - `obesity_class`
   - `fibrosis_ishak_score`
+- All-phenotype rows (`master_sample_metadata_lihc_all.csv`) require non-missing:
+  - `alcohol_status`
+  - `hbv_status`
+  - `hcv_status`
+  - `nafld_status`
+  - `obesity_class`
+  - `fibrosis_ishak_score`
+- NAFLD-focused rows require non-missing:
+  - `alcohol_status`
+  - `hbv_status`
+  - `hcv_status`
+  - `nafld_status`
+  - `obesity_class`
+- HCV-focused rows require non-missing:
+  - `alcohol_status`
+  - `hbv_status`
+  - `hcv_status`
+  - `nafld_status`
+  - `obesity_class`
 
 ## Grid search
 
@@ -170,4 +228,10 @@ Results dashboard:
 
 ```bash
 streamlit run tools/results_dashboard/run.py
+```
+
+State validation dashboard:
+
+```bash
+streamlit run tools/state_validation_dashboard.py
 ```

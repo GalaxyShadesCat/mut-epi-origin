@@ -5,9 +5,9 @@ This script audits:
 - data/derived/master_sample_metadata.csv
 
 It normalises missing tokens, removes exact duplicate rows, filters to LIHC rows with
-non-missing fibrosis score, and writes simplified outputs with one column per major
-risk attribute (alcohol, viral hepatitis, NAFLD, obesity, fibrosis), plus explicit
-missingness logs.
+targeted phenotype completeness (fibrosis, NAFLD, and HCV variants), and writes
+simplified outputs with one column per major risk attribute (alcohol, viral hepatitis,
+NAFLD, obesity, fibrosis), plus explicit missingness logs.
 """
 
 from __future__ import annotations
@@ -23,6 +23,9 @@ INPUT_PATH = DERIVED_DIR / "master_sample_metadata.csv"
 
 CLEANED_CSV = DERIVED_DIR / "master_sample_metadata_cleaned.csv"
 FIBROSIS_CSV = DERIVED_DIR / "master_sample_metadata_lihc_fibrosis.csv"
+NAFLD_CSV = DERIVED_DIR / "master_sample_metadata_lihc_nafld.csv"
+HCV_CSV = DERIVED_DIR / "master_sample_metadata_lihc_hcv.csv"
+ALL_CSV = DERIVED_DIR / "master_sample_metadata_lihc_all.csv"
 ROWS_WITH_ISSUES_CSV = DERIVED_DIR / "master_sample_metadata_rows_with_issues.csv"
 QC_REPORT = DERIVED_DIR / "master_sample_metadata_qc_report.txt"
 
@@ -142,6 +145,15 @@ def build_simplified_table(frame: pd.DataFrame) -> pd.DataFrame:
     return out[keep_cols].copy()
 
 
+def _lihc_tumour_base_filter(frame: pd.DataFrame) -> pd.DataFrame:
+    """Apply shared LIHC primary tumour filters used by cohort subsets."""
+    return frame[
+        (frame["project_id"] == "TCGA-LIHC")
+        & frame["primary_diagnosis"].apply(normalise_value).isin(ALLOWED_PRIMARY_DIAGNOSES)
+        & (frame["tumour_sample_type"].apply(normalise_value) == "Primary Tumor")
+    ].copy()
+
+
 def main() -> None:
     """Run QC, write cleaned and fibrosis-filtered outputs, and report missingness."""
     if not INPUT_PATH.exists():
@@ -175,15 +187,36 @@ def main() -> None:
     cleaned["row_issue_notes"] = issue_notes
     cleaned["row_issue_flag"] = cleaned["row_issue_notes"].notna()
 
-    fibrosis = cleaned[
-        (cleaned["project_id"] == "TCGA-LIHC")
-        & cleaned["ishak_fibrosis_score"].apply(normalise_value).notna()
-        & cleaned["primary_diagnosis"].apply(normalise_value).isin(ALLOWED_PRIMARY_DIAGNOSES)
-        & (cleaned["tumour_sample_type"].apply(normalise_value) == "Primary Tumor")
+    lihc_tumour_base = _lihc_tumour_base_filter(cleaned)
+    all_lihc = lihc_tumour_base[
+        lihc_tumour_base["risk_alcohol"].apply(normalise_value).notna()
+        & lihc_tumour_base["risk_hbv"].apply(normalise_value).notna()
+        & lihc_tumour_base["risk_hcv"].apply(normalise_value).notna()
+        & lihc_tumour_base["risk_nafld"].apply(normalise_value).notna()
+        & lihc_tumour_base["obesity_class_from_bmi"].apply(normalise_value).notna()
+        & lihc_tumour_base["ishak_fibrosis_score"].apply(normalise_value).notna()
     ].copy()
+    fibrosis = lihc_tumour_base[
+        lihc_tumour_base["ishak_fibrosis_score"].apply(normalise_value).notna()
+    ].copy()
+    if "risk_nafld" in lihc_tumour_base.columns:
+        nafld = lihc_tumour_base[
+            lihc_tumour_base["risk_nafld"].apply(normalise_value).notna()
+        ].copy()
+    else:
+        nafld = lihc_tumour_base.iloc[0:0].copy()
+    if "risk_hcv" in lihc_tumour_base.columns:
+        hcv = lihc_tumour_base[
+            lihc_tumour_base["risk_hcv"].apply(normalise_value).notna()
+        ].copy()
+    else:
+        hcv = lihc_tumour_base.iloc[0:0].copy()
 
     cleaned_simple = build_simplified_table(cleaned)
+    all_lihc_simple = build_simplified_table(all_lihc)
     fibrosis_simple = build_simplified_table(fibrosis)
+    nafld_simple = build_simplified_table(nafld)
+    hcv_simple = build_simplified_table(hcv)
 
     risk_cols = [
         "alcohol_status",
@@ -195,12 +228,18 @@ def main() -> None:
     ]
 
     missing_cleaned = missingness_metrics(cleaned_simple, risk_cols)
+    missing_all_lihc = missingness_metrics(all_lihc_simple, risk_cols)
     missing_fibrosis = missingness_metrics(fibrosis_simple, risk_cols)
+    missing_nafld = missingness_metrics(nafld_simple, risk_cols)
+    missing_hcv = missingness_metrics(hcv_simple, risk_cols)
 
     rows_with_issues = cleaned[cleaned["row_issue_flag"]].copy()
 
     cleaned_simple.to_csv(CLEANED_CSV, index=False)
+    all_lihc_simple.to_csv(ALL_CSV, index=False)
     fibrosis_simple.to_csv(FIBROSIS_CSV, index=False)
+    nafld_simple.to_csv(NAFLD_CSV, index=False)
+    hcv_simple.to_csv(HCV_CSV, index=False)
     rows_with_issues.to_csv(ROWS_WITH_ISSUES_CSV, index=False)
 
     with QC_REPORT.open("w", encoding="utf-8") as handle:
@@ -209,7 +248,10 @@ def main() -> None:
         handle.write(f"rows_raw\t{len(raw)}\n")
         handle.write(f"rows_after_exact_dedup\t{len(cleaned)}\n")
         handle.write(f"exact_duplicate_rows_removed\t{exact_duplicate_count}\n")
+        handle.write(f"rows_lihc_all_filtered\t{len(all_lihc)}\n")
         handle.write(f"rows_lihc_with_non_missing_fibrosis\t{len(fibrosis)}\n")
+        handle.write(f"rows_lihc_with_non_missing_nafld\t{len(nafld)}\n")
+        handle.write(f"rows_lihc_with_non_missing_hcv\t{len(hcv)}\n")
         handle.write(
             "primary_diagnosis_filter\t"
             + "; ".join(sorted(ALLOWED_PRIMARY_DIAGNOSES))
@@ -220,9 +262,15 @@ def main() -> None:
 
         handle.write("\nMissingness summary (cleaned cohort): alcohol/virus/obesity\n")
         handle.write(missing_cleaned.to_string(index=False))
+        handle.write("\n\nMissingness summary (LIHC all-filtered cohort): alcohol/virus/obesity\n")
+        handle.write(missing_all_lihc.to_string(index=False))
 
         handle.write("\n\nMissingness summary (LIHC fibrosis-filtered cohort): alcohol/virus/obesity\n")
         handle.write(missing_fibrosis.to_string(index=False))
+        handle.write("\n\nMissingness summary (LIHC NAFLD-filtered cohort): alcohol/virus/obesity\n")
+        handle.write(missing_nafld.to_string(index=False))
+        handle.write("\n\nMissingness summary (LIHC HCV-filtered cohort): alcohol/virus/obesity\n")
+        handle.write(missing_hcv.to_string(index=False))
 
         handle.write("\n\nValue counts (cleaned): risk_alcohol\n")
         if "alcohol_status" in cleaned_simple.columns:
@@ -242,11 +290,20 @@ def main() -> None:
 
     print("QC completed.")
     print(f"rows_cleaned={len(cleaned)}")
+    print(f"rows_all_lihc_filtered={len(all_lihc)}")
     print(f"rows_fibrosis_filtered={len(fibrosis)}")
+    print(f"rows_nafld_filtered={len(nafld)}")
+    print(f"rows_hcv_filtered={len(hcv)}")
+    print("Missingness (LIHC all-filtered cohort):")
+    print(missing_all_lihc.to_string(index=False))
     print("Missingness (LIHC fibrosis-filtered cohort):")
     print(missing_fibrosis.to_string(index=False))
+    print("Missingness (LIHC NAFLD-filtered cohort):")
+    print(missing_nafld.to_string(index=False))
+    print("Missingness (LIHC HCV-filtered cohort):")
+    print(missing_hcv.to_string(index=False))
     print("Wrote:")
-    for path in [CLEANED_CSV, FIBROSIS_CSV, ROWS_WITH_ISSUES_CSV, QC_REPORT]:
+    for path in [CLEANED_CSV, ALL_CSV, FIBROSIS_CSV, NAFLD_CSV, HCV_CSV, ROWS_WITH_ISSUES_CSV, QC_REPORT]:
         print(path)
 
 

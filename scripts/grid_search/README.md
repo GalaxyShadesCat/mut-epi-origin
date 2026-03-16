@@ -167,6 +167,14 @@ Useful optional flags:
 - `--cv-folds <N>` to reduce CV cost
 - `--allow-aggregated-results` only if your `results.csv` rows represent multiple samples
 
+For a NAFLD-oriented run (without requiring fibrosis columns in metadata), pass:
+
+- `--metadata-path data/derived/master_sample_metadata_lihc_nafld.csv`
+- `--modelling-targets nafld_status`
+- `--group-test-vars nafld_status,obesity_class`
+- `--correlation-vars nafld_status`
+- `--covariate-cols alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class`
+
 This writes the following files into `outputs/experiments/<run_dir_name>/`:
 
 - `model_matrix.csv`
@@ -210,6 +218,21 @@ python scripts/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
   --state-labels normal_FOXA2_pos,abnormal_FOXA2_zero \
   --state-suffixes normal_FOXA2_pos,abnormal_FOXA2_zero \
+  --allow-aggregated-results
+```
+
+NAFLD-focused setup (fibrosis optional):
+
+```bash
+python scripts/validate_state_scores.py \
+  --experiment-name YOUR_EXPERIMENT \
+  --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
+  --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
+  --state-suffixes normal,ac,ah \
+  --modelling-targets nafld_status \
+  --group-test-vars nafld_status,obesity_class \
+  --correlation-vars nafld_status \
+  --covariate-cols alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class \
   --allow-aggregated-results
 ```
 

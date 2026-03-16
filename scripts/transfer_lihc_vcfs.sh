@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Transfer VCF-related files for complete-case LIHC fibrosis tumour samples.
+# Transfer VCF-related files for LIHC tumour samples from filtered metadata.
 #
 # Modes:
 #   --test   Dry run only
@@ -15,6 +15,8 @@
 #
 # Examples:
 #   bash scripts/transfer_lihc_vcfs.sh --test
+#   bash scripts/transfer_lihc_vcfs.sh --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv --cohort-label nafld
+#   bash scripts/transfer_lihc_vcfs.sh --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv --cohort-label nafld --required-complete-fields alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class
 #   bash scripts/transfer_lihc_vcfs.sh --test --ip 10.0.0.1 --port 22 --username alice --password 'secret'
 #   bash scripts/transfer_lihc_vcfs.sh --ip 10.0.0.1 --port 22 --username alice --password 'secret'
 
@@ -27,6 +29,8 @@ METADATA_CSV="${METADATA_CSV:-${PROJECT_ROOT}/data/derived/master_sample_metadat
 SRC_DIR="${SRC_DIR:-/nas/Jason/Data/mutationDatabase/WGS_TCGA25/AtoL/VCF}"
 DEST_DIR="${DEST_DIR:-${PROJECT_ROOT}/data/raw/WGS_TCGA25/AtoL/VCF}"
 MANIFEST_DIR="${MANIFEST_DIR:-${PROJECT_ROOT}/data/derived/manifests}"
+COHORT_LABEL="${COHORT_LABEL:-fibrosis}"
+REQUIRED_COMPLETE_FIELDS="${REQUIRED_COMPLETE_FIELDS:-}"
 
 REMOTE_IP=""
 REMOTE_PORT=""
@@ -43,10 +47,13 @@ log() {
 usage() {
     cat <<'EOF'
 Usage:
-  bash scripts/transfer_lihc_vcfs.sh [--test] [--ip <ip>] [--port <port>] [--username <name>] [--password <password>]
+  bash scripts/transfer_lihc_vcfs.sh [--test] [--metadata-csv <path>] [--cohort-label <label>] [--required-complete-fields <csv>] [--ip <ip>] [--port <port>] [--username <name>] [--password <password>]
 
 Options:
   --test        Dry run only. No files are copied.
+  --metadata-csv  Metadata CSV path (default: data/derived/master_sample_metadata_lihc_fibrosis.csv)
+  --cohort-label  Label used for manifest naming (default: fibrosis)
+  --required-complete-fields  Optional comma list of required non-missing metadata fields
   --ip          Remote SSH host
   --port        Remote SSH port
   --username    Remote SSH username
@@ -66,6 +73,18 @@ while [[ $# -gt 0 ]]; do
         --test)
             TEST_MODE="true"
             shift
+            ;;
+        --metadata-csv)
+            METADATA_CSV="${2:-}"
+            shift 2
+            ;;
+        --cohort-label)
+            COHORT_LABEL="${2:-}"
+            shift 2
+            ;;
+        --required-complete-fields)
+            REQUIRED_COMPLETE_FIELDS="${2:-}"
+            shift 2
             ;;
         --ip)
             REMOTE_IP="${2:-}"
@@ -95,6 +114,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ -z "${COHORT_LABEL}" ]]; then
+    echo "Error: --cohort-label cannot be blank." >&2
+    exit 1
+fi
+
 REMOTE_MODE="false"
 if [[ -n "${REMOTE_IP}" || -n "${REMOTE_PORT}" || -n "${REMOTE_USERNAME}" || -n "${REMOTE_PASSWORD}" ]]; then
     if [[ -z "${REMOTE_IP}" || -z "${REMOTE_PORT}" || -z "${REMOTE_USERNAME}" || -z "${REMOTE_PASSWORD}" ]]; then
@@ -104,7 +128,11 @@ if [[ -n "${REMOTE_IP}" || -n "${REMOTE_PORT}" || -n "${REMOTE_USERNAME}" || -n 
     REMOTE_MODE="true"
 fi
 
-MANIFEST_PATH="${MANIFEST_DIR}/lihc_tumour_vcf_candidates.tsv"
+if [[ "${COHORT_LABEL}" == "fibrosis" ]]; then
+    MANIFEST_PATH="${MANIFEST_DIR}/lihc_tumour_vcf_candidates.tsv"
+else
+    MANIFEST_PATH="${MANIFEST_DIR}/lihc_tumour_vcf_candidates_${COHORT_LABEL}.tsv"
+fi
 
 mkdir -p "${MANIFEST_DIR}" "${DEST_DIR}"
 
@@ -134,12 +162,14 @@ log "Project root: ${PROJECT_ROOT}"
 log "Metadata CSV: ${METADATA_CSV}"
 log "Source dir: ${SRC_DIR}"
 log "Destination dir: ${DEST_DIR}"
+log "Cohort label: ${COHORT_LABEL}"
+log "Required complete fields: ${REQUIRED_COMPLETE_FIELDS:-<none>}"
 log "Manifest path: ${MANIFEST_PATH}"
 log "Remote mode: ${REMOTE_MODE}"
 log "Test mode: ${TEST_MODE}"
 
-log "Step 1/4: selecting complete-case samples and expected filenames from metadata"
-python - "${METADATA_CSV}" "${SELECTED_SAMPLES_TSV}" "${EXPECTED_FILES_TSV}" <<'PY'
+log "Step 1/4: selecting eligible samples and expected filenames from metadata"
+python - "${METADATA_CSV}" "${SELECTED_SAMPLES_TSV}" "${EXPECTED_FILES_TSV}" "${REQUIRED_COMPLETE_FIELDS}" <<'PY'
 import csv
 import sys
 from collections import defaultdict
@@ -148,14 +178,12 @@ from pathlib import Path
 metadata_csv = Path(sys.argv[1])
 selected_path = Path(sys.argv[2])
 expected_path = Path(sys.argv[3])
+required_complete_fields_raw = sys.argv[4]
 
 required_complete_fields = [
-    "alcohol_status",
-    "hbv_status",
-    "hcv_status",
-    "nafld_status",
-    "obesity_class",
-    "fibrosis_ishak_score",
+    field.strip()
+    for field in required_complete_fields_raw.split(",")
+    if field.strip()
 ]
 required_columns = set(required_complete_fields) | {
     "project_id",
@@ -203,7 +231,7 @@ with metadata_csv.open("r", encoding="utf-8-sig", newline="") as handle:
     project_pass = 0
     diagnosis_pass = 0
     sample_type_pass = 0
-    complete_case_pass = 0
+    eligible_rows_pass = 0
     file_name_pass = 0
 
     for row in reader:
@@ -224,7 +252,7 @@ with metadata_csv.open("r", encoding="utf-8-sig", newline="") as handle:
 
         if any(normalise(row.get(field)) is None for field in required_complete_fields):
             continue
-        complete_case_pass += 1
+        eligible_rows_pass += 1
 
         sample_submitter_id = clean_text(row.get("tumour_sample_submitter_id")) or ""
         sample_uuid = clean_text(row.get("tumour_sample_id")) or ""
@@ -288,10 +316,14 @@ print(f"metadata_rows_total\t{total_rows}")
 print(f"project_pass\t{project_pass}")
 print(f"diagnosis_pass\t{diagnosis_pass}")
 print(f"sample_type_pass\t{sample_type_pass}")
-print(f"complete_case_pass\t{complete_case_pass}")
+print(f"eligible_rows_pass\t{eligible_rows_pass}")
 print(f"file_name_pass\t{file_name_pass}")
 print(f"selected_samples\t{len(selected_rows)}")
 print(f"expected_unique_file_records\t{len(expected_rows)}")
+print(
+    "required_complete_fields\t"
+    + (",".join(required_complete_fields) if required_complete_fields else "<none>")
+)
 PY
 
 log "Selected sample preview:"
@@ -562,14 +594,14 @@ else
     log "No files matched; skipping transfer."
 fi
 
-complete_case_samples="$(tail -n +2 "${SELECTED_SAMPLES_TSV}" | wc -l | tr -d ' ')"
+selected_samples="$(tail -n +2 "${SELECTED_SAMPLES_TSV}" | wc -l | tr -d ' ')"
 files_matched="$(wc -l < "${RSYNC_FILES_TXT}" | tr -d ' ')"
 unmatched_samples="$(tail -n +2 "${UNMATCHED_SAMPLES_TSV}" | wc -l | tr -d ' ')"
 
 echo
 echo "Summary"
 echo "- Mode: $( [[ "${TEST_MODE}" == "true" ]] && echo "test (dry run)" || echo "actual transfer" )"
-echo "- Complete-case samples detected: ${complete_case_samples}"
+echo "- Selected samples detected: ${selected_samples}"
 echo "- Files matched: ${files_matched}"
 echo "- Destination path: ${DEST_DIR}"
 echo "- Manifest: ${MANIFEST_PATH}"
