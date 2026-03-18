@@ -221,7 +221,7 @@ For a full, practical guide to the mutation-vs-accessibility grid search runner 
 Track visualisation:
 
 ```bash
-streamlit run tools/track_visualisation.py
+streamlit run tools/track_visualisation_dashboard.py
 ```
 
 Results dashboard:

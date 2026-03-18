@@ -1,3 +1,5 @@
+"""Streamlit dashboard for mutation track visualisation and comparison workflows."""
+
 from __future__ import annotations
 
 import json
