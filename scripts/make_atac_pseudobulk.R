@@ -248,10 +248,24 @@ build_bigwig_pair <- function(group_id, cells_use, counts, peaks_gr,
   }
 
   idx <- match(cells_use, colnames(counts))
-  idx <- idx[!is.na(idx)]
-
-  if (length(idx) == 0) {
-    stop("No matching cells in ATAC counts for group: ", group_id)
+  missing_cells <- cells_use[is.na(idx)]
+  if (length(missing_cells) > 0) {
+    stop(
+      "Selected cells missing in ATAC counts for group ",
+      group_id,
+      ". Missing cells: ",
+      paste(missing_cells, collapse = ", ")
+    )
+  }
+  if (length(idx) != length(cells_use)) {
+    stop(
+      "Cell index mismatch for group ",
+      group_id,
+      ": selected=",
+      length(cells_use),
+      ", matched=",
+      length(idx)
+    )
   }
 
   n_cells_used <- length(idx)
