@@ -173,6 +173,35 @@ def _filter_common(df: pd.DataFrame, scoring_system: str, config_id: str) -> pd.
     return out
 
 
+def _collect_metadata_variables(
+    metadata_df: pd.DataFrame,
+    merged_df: pd.DataFrame,
+    *validation_frames: pd.DataFrame,
+) -> List[str]:
+    """Collect metadata variable names from metadata and validation outputs only."""
+    candidates: set[str] = set()
+
+    if not metadata_df.empty:
+        for col in metadata_df.columns:
+            if col != "sample":
+                candidates.add(str(col))
+
+    for frame in validation_frames:
+        if not frame.empty and "metadata_variable" in frame.columns:
+            values = (
+                frame["metadata_variable"]
+                .dropna()
+                .astype(str)
+                .str.strip()
+            )
+            candidates.update(v for v in values if v)
+
+    # Keep only variables actually present in merged rows used for plotting/filtering.
+    merged_cols = set(merged_df.columns) if not merged_df.empty else set()
+    resolved = sorted([name for name in candidates if name in merged_cols])
+    return resolved
+
+
 def _is_numeric(series: pd.Series) -> bool:
     return pd.to_numeric(series, errors="coerce").notna().sum() >= 3
 
@@ -224,10 +253,16 @@ def run_dashboard() -> None:
     scoring_options = sorted(set(pd.concat([merged.get("scoring_system", pd.Series(dtype="object")), group_tests.get("scoring_system", pd.Series(dtype="object")), model_summary.get("scoring_system", pd.Series(dtype="object"))], ignore_index=True).dropna().astype(str)))
     config_options = sorted(set(pd.concat([merged.get("config_id", pd.Series(dtype="object")), group_tests.get("config_id", pd.Series(dtype="object")), model_summary.get("config_id", pd.Series(dtype="object"))], ignore_index=True).dropna().astype(str)))
 
-    metadata_options = []
-    if not merged.empty:
-        skip = {"sample", "config_id", "scoring_system", "best_cell_state", "best_score", "second_best_score", "score_gap", "score_entropy", "normalised_best_score", "n_states"}
-        metadata_options = sorted([c for c in merged.columns if c not in skip and not c.startswith("score_") and merged[c].notna().sum() > 0])
+    metadata_options = _collect_metadata_variables(
+        metadata,
+        merged,
+        group_tests,
+        correlations,
+        score_contrasts,
+        label_assoc,
+        label_assoc_conf,
+        label_ovr,
+    )
 
     with st.sidebar:
         scoring_system = st.selectbox("Scoring system", ["All"] + scoring_options)
@@ -269,20 +304,36 @@ def run_dashboard() -> None:
                 st.altair_chart(alt.Chart(state_counts).mark_bar().encode(x="best_cell_state:N", y="n:Q", tooltip=["best_cell_state", "n"]), use_container_width=True)
 
     with tabs[1]:
-        if metadata_var in filtered_group.get("metadata_variable", pd.Series(dtype="object")).astype(str).unique().tolist():
+        st.markdown("### Table 1: Group Difference Tests")
+        st.caption(
+            "Compares score values between metadata groups (for example yes vs no) "
+            "using tests such as Mann-Whitney or Kruskal."
+        )
+
+        if "metadata_variable" in filtered_group.columns:
             filtered_group = filtered_group[filtered_group["metadata_variable"] == metadata_var].copy()
-        if score_feature in filtered_group.get("score_feature", pd.Series(dtype="object")).astype(str).unique().tolist():
+        if "score_feature" in filtered_group.columns:
             filtered_group = filtered_group[filtered_group["score_feature"] == score_feature].copy()
         st.caption(f"Group tests shown: {len(filtered_group)} rows for metadata `{metadata_var}` and score `{score_feature}`.")
         st.dataframe(filtered_group, use_container_width=True)
 
-        if metadata_var in filtered_corr.get("metadata_variable", pd.Series(dtype="object")).astype(str).unique().tolist():
+        st.markdown("### Table 2: Correlation Tests")
+        st.caption(
+            "Measures numeric correlation between a score and a metadata variable "
+            "using Pearson or Spearman correlation."
+        )
+
+        if "metadata_variable" in filtered_corr.columns:
             filtered_corr = filtered_corr[filtered_corr["metadata_variable"] == metadata_var].copy()
-        if score_feature in filtered_corr.get("score_feature", pd.Series(dtype="object")).astype(str).unique().tolist():
+        if "score_feature" in filtered_corr.columns:
             filtered_corr = filtered_corr[filtered_corr["score_feature"] == score_feature].copy()
         if not filtered_corr.empty:
-            st.markdown("Correlations")
             st.dataframe(filtered_corr, use_container_width=True)
+        else:
+            st.info(
+                f"No correlation rows for metadata `{metadata_var}` and score `{score_feature}` "
+                "in this experiment output."
+            )
 
         if not filtered_scores.empty and metadata_var in filtered_scores.columns and score_feature in filtered_scores.columns:
             d = filtered_scores[["sample", metadata_var, score_feature]].dropna().copy()
