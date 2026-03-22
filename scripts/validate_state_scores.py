@@ -744,6 +744,23 @@ def run_group_tests(
     return pd.DataFrame(rows, columns=GROUP_TEST_COLUMNS)
 
 
+def _encode_binary_text_series(values: pd.Series) -> pd.Series:
+    negative_tokens = {"0", "false", "f", "no", "n", "absent", "negative"}
+    positive_tokens = {"1", "true", "t", "yes", "y", "present", "positive"}
+
+    def _map_value(value: Any) -> float:
+        if value is None or pd.isna(value):
+            return np.nan
+        text = str(value).strip().lower()
+        if text in negative_tokens:
+            return 0.0
+        if text in positive_tokens:
+            return 1.0
+        return np.nan
+
+    return values.map(_map_value)
+
+
 def run_correlations(
     score_df: pd.DataFrame,
     score_features: Sequence[str],
@@ -758,8 +775,17 @@ def run_correlations(
                 d = sub[[score_feature, metadata_var]].dropna().copy()
                 if len(d) < 3:
                     continue
-                x = d[score_feature].astype(float).to_numpy()
-                y = d[metadata_var].astype(float).to_numpy()
+                x_series = pd.to_numeric(d[score_feature], errors="coerce")
+                y_series = pd.to_numeric(d[metadata_var], errors="coerce")
+                if y_series.isna().all():
+                    y_series = _encode_binary_text_series(d[metadata_var])
+
+                paired = pd.DataFrame({"x": x_series, "y": y_series}).dropna()
+                if len(paired) < 3:
+                    continue
+
+                x = paired["x"].to_numpy()
+                y = paired["y"].to_numpy()
                 if np.nanstd(x) == 0.0 or np.nanstd(y) == 0.0:
                     continue
                 rho_s, p_s = spearmanr(x, y)
@@ -771,7 +797,7 @@ def run_correlations(
                         "score_feature": score_feature,
                         "metadata_variable": metadata_var,
                         "correlation_type": "spearman",
-                        "n": int(len(d)),
+                        "n": int(len(paired)),
                         "statistic": float(rho_s),
                         "p_value": float(p_s),
                     }
@@ -783,7 +809,7 @@ def run_correlations(
                         "score_feature": score_feature,
                         "metadata_variable": metadata_var,
                         "correlation_type": "pearson",
-                        "n": int(len(d)),
+                        "n": int(len(paired)),
                         "statistic": float(rho_p),
                         "p_value": float(p_p),
                     }
