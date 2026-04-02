@@ -32,3 +32,10 @@ dependencies:
   # Compilers (safe to include)
   - gcc_linux-64
   - gxx_linux-64
+
+  # Python packaging
+  - pip
+
+  # Python packages pinned in requirements.txt
+  - pip:
+      - -r requirements.txt
