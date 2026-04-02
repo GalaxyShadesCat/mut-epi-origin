@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run adjusted label-association validation for inferred state scores.
+"""Run adjusted validation for inferred state scores.
 
 This script is a companion to ``validate_state_scores.py`` and keeps the
 existing unadjusted outputs untouched. It focuses on adjusted one-vs-rest
@@ -10,6 +10,7 @@ Key features:
 - Loads single-sample rows from results.csv
 - Builds inferred best-state labels per sample/config/scoring-system
 - Adds total mutation burden from results.csv and computes log1p burden
+- Runs adjusted score-level tests (same outcome type as group tests in dashboard)
 - Runs adjusted one-vs-rest association tests for requested exposure variables
 - Supports a primary adjustment model and an optional sensitivity model
 - Writes a tidy CSV with raw and FDR-adjusted p-values
@@ -101,6 +102,24 @@ ADJUSTED_OUTPUT_COLUMNS: List[str] = [
     "p_value_fdr",
     "coef_json",
     "odds_ratio_json",
+]
+
+SCORE_LEVEL_ADJUSTED_OUTPUT_COLUMNS: List[str] = [
+    "config_id",
+    "scoring_system",
+    "model_set",
+    "score_feature",
+    "exposure_var",
+    "n_total",
+    "n_exposure_levels",
+    "n_exposure_terms",
+    "adjustment_vars",
+    "test_type",
+    "statistic",
+    "df",
+    "p_value",
+    "p_value_fdr",
+    "coef_json",
 ]
 
 
@@ -324,6 +343,153 @@ def add_fdr_column(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def add_fdr_column_for_score_tests(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["p_value_fdr"] = np.nan
+    if out.empty:
+        return out
+
+    for _, idx in out.groupby(["model_set", "score_feature"]).groups.items():
+        p_vals = out.loc[idx, "p_value"].astype(float).to_numpy()
+        out.loc[idx, "p_value_fdr"] = _bh_fdr(p_vals)
+    return out
+
+
+def _fit_linear_and_loglik(x: pd.DataFrame, y: pd.Series) -> Tuple[np.ndarray, float]:
+    x_mat = np.column_stack([np.ones(len(x), dtype=float), x.to_numpy(dtype=float)])
+    y_vec = y.to_numpy(dtype=float)
+    beta, _, _, _ = np.linalg.lstsq(x_mat, y_vec, rcond=None)
+    residuals = y_vec - x_mat @ beta
+    n_samples = len(y_vec)
+    rss = float(np.sum(residuals ** 2))
+    if rss <= 0.0:
+        rss = 1e-12
+    log_lik = -0.5 * n_samples * (math.log(2.0 * math.pi) + 1.0 + math.log(rss / n_samples))
+    return beta, log_lik
+
+
+def run_adjusted_score_level_tests(
+    merged_with_covariates: pd.DataFrame,
+    score_features: Sequence[str],
+    exposure_vars: Sequence[str],
+    primary_adjustment_vars: Sequence[str],
+    sensitivity_extra_vars: Sequence[str],
+    run_sensitivity: bool,
+) -> pd.DataFrame:
+    rows: List[Dict[str, Any]] = []
+    model_sets: List[Tuple[str, List[str]]] = [("primary", list(primary_adjustment_vars))]
+    if run_sensitivity:
+        sensitivity_adjustment = list(primary_adjustment_vars) + list(sensitivity_extra_vars)
+        model_sets.append(("sensitivity", sensitivity_adjustment))
+
+    grouped = merged_with_covariates.groupby(["config_id", "scoring_system"], dropna=False)
+    for (config_id, scoring_system), sub in grouped:
+        available_cols = set(sub.columns)
+        available_exposure_vars = [var for var in exposure_vars if var in available_cols]
+        available_score_features = [feature for feature in score_features if feature in available_cols]
+
+        for model_set_name, adjustment_vars_raw in model_sets:
+            for score_feature in available_score_features:
+                for exposure_var in available_exposure_vars:
+                    adjustment_vars = [
+                        var
+                        for var in adjustment_vars_raw
+                        if var in available_cols and var != exposure_var
+                    ]
+                    predictors = [exposure_var] + adjustment_vars
+                    required_cols = [score_feature] + predictors
+                    d = sub[required_cols].copy()
+                    d[score_feature] = pd.to_numeric(d[score_feature], errors="coerce")
+                    d = d.dropna(subset=required_cols).copy()
+                    if len(d) < 6:
+                        continue
+
+                    n_exposure_levels = int(d[exposure_var].astype(str).nunique())
+                    if n_exposure_levels < 2:
+                        continue
+
+                    x_full = _encode_predictors(d, predictors)
+                    exposure_terms = [
+                        col
+                        for col in x_full.columns
+                        if col == exposure_var or col.startswith(f"{exposure_var}__")
+                    ]
+                    if not exposure_terms:
+                        continue
+
+                    y = d[score_feature]
+                    try:
+                        beta_full, ll_full = _fit_linear_and_loglik(x_full, y)
+                    except Exception:
+                        continue
+
+                    reduced_predictors = [col for col in predictors if col != exposure_var]
+                    if reduced_predictors:
+                        x_reduced = _encode_predictors(d, reduced_predictors)
+                        try:
+                            _, ll_reduced = _fit_linear_and_loglik(x_reduced, y)
+                            reduced_n_params = 1 + x_reduced.shape[1]
+                        except Exception:
+                            continue
+                    else:
+                        y_mean = float(y.mean())
+                        rss_null = float(np.sum((y.to_numpy(dtype=float) - y_mean) ** 2))
+                        if rss_null <= 0.0:
+                            rss_null = 1e-12
+                        n_samples = len(y)
+                        ll_reduced = -0.5 * n_samples * (
+                            math.log(2.0 * math.pi) + 1.0 + math.log(rss_null / n_samples)
+                        )
+                        reduced_n_params = 1
+
+                    full_n_params = 1 + x_full.shape[1]
+                    df_lrt = int(full_n_params - reduced_n_params)
+                    if df_lrt < 1:
+                        continue
+
+                    stat = float(2.0 * (ll_full - ll_reduced))
+                    p_value = float(chi2.sf(stat, df_lrt))
+
+                    coef_series = pd.Series(beta_full[1:], index=x_full.columns)
+                    exposure_coefs = {key: float(coef_series[key]) for key in exposure_terms}
+
+                    rows.append(
+                        {
+                            "config_id": config_id,
+                            "scoring_system": scoring_system,
+                            "model_set": model_set_name,
+                            "score_feature": score_feature,
+                            "exposure_var": exposure_var,
+                            "n_total": int(len(d)),
+                            "n_exposure_levels": n_exposure_levels,
+                            "n_exposure_terms": int(len(exposure_terms)),
+                            "adjustment_vars": ",".join(adjustment_vars),
+                            "test_type": "linear_model_lrt",
+                            "statistic": stat,
+                            "df": df_lrt,
+                            "p_value": p_value,
+                            "p_value_fdr": np.nan,
+                            "coef_json": json.dumps(exposure_coefs, sort_keys=True),
+                        }
+                    )
+
+    out = pd.DataFrame(rows, columns=SCORE_LEVEL_ADJUSTED_OUTPUT_COLUMNS)
+    if out.empty:
+        return out
+    out = add_fdr_column_for_score_tests(out)
+    return out.sort_values(
+        by=[
+            "config_id",
+            "scoring_system",
+            "model_set",
+            "score_feature",
+            "exposure_var",
+            "p_value",
+        ],
+        ascending=[True, True, True, True, True, True],
+    ).reset_index(drop=True)
+
+
 def run_adjusted_label_association_tests(
     rankings_with_covariates: pd.DataFrame,
     state_labels: Sequence[str],
@@ -498,6 +664,7 @@ def main() -> None:
     scoring_systems = ensure_scoring_systems(args.scoring_systems)
     state_config = parse_state_config(args.state_labels, args.state_suffixes)
     ranking_columns = ranking_output_columns(state_config)
+    score_features = [score_col for score_col in ranking_columns if score_col.startswith("score_")]
     invert_scores = not args.no_invert_scores
 
     exposure_vars_requested = parse_csv_list(args.exposure_vars, "--exposure-vars")
@@ -621,6 +788,17 @@ def main() -> None:
         f"systems={rankings_with_covariates['scoring_system'].nunique()})"
     )
 
+    log("Running adjusted score-level tests...")
+    score_level_adjusted = run_adjusted_score_level_tests(
+        merged_with_covariates=merged,
+        score_features=score_features,
+        exposure_vars=exposure_vars,
+        primary_adjustment_vars=primary_adjustment_vars,
+        sensitivity_extra_vars=sensitivity_extra_vars,
+        run_sensitivity=not args.skip_sensitivity_model,
+    )
+    log(f"Completed adjusted score-level tests: {len(score_level_adjusted)} rows")
+
     log("Running adjusted one-vs-rest association tests...")
     adjusted = run_adjusted_label_association_tests(
         rankings_with_covariates=rankings_with_covariates,
@@ -640,6 +818,11 @@ def main() -> None:
         ranking_columns,
     )
     write_csv(
+        score_level_adjusted,
+        experiment_dir / "validation_group_tests_adjusted.csv",
+        SCORE_LEVEL_ADJUSTED_OUTPUT_COLUMNS,
+    )
+    write_csv(
         adjusted,
         experiment_dir / "validation_label_associations_adjusted.csv",
         ADJUSTED_OUTPUT_COLUMNS,
@@ -656,6 +839,7 @@ def main() -> None:
         f"{rankings_with_covariates['scoring_system'].nunique()}"
     )
     log(f"- States analysed: {len(state_config)}")
+    log(f"- Adjusted score-level tests run: {len(score_level_adjusted)}")
     log(f"- Adjusted tests run: {len(adjusted)}")
 
 
