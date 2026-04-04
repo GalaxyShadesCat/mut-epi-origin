@@ -126,6 +126,10 @@ SCORE_LEVEL_ADJUSTED_OUTPUT_COLUMNS: List[str] = [
 def log(message: str) -> None:
     print(message, flush=True)
 
+def safe_exp(value: float) -> float:
+    """Return exp(value) with clipping to avoid overflow in extreme fits."""
+    return float(np.exp(np.clip(value, -700.0, 700.0)))
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -593,7 +597,7 @@ def run_adjusted_label_association_tests(
                         )
                         exposure_coefs = {key: float(coef_series[key]) for key in exposure_terms}
                         exposure_ors = {
-                            key: float(math.exp(exposure_coefs[key]))
+                            key: safe_exp(exposure_coefs[key])
                             for key in exposure_terms
                         }
 

@@ -642,6 +642,8 @@ def run_grid_experiment(
         save_per_bin: bool = True,
         chunksize: int = 250_000,
         tumour_filter: Optional[Sequence[str]] = None,
+        parallel_shard_count: int = 1,
+        parallel_shard_index: int = 0,
 ) -> pd.DataFrame:
     suppress_sklearn_parallel_warning()
 
@@ -802,7 +804,19 @@ def run_grid_experiment(
         save_per_bin = resume_params.get("save_per_bin", save_per_bin)
         chunksize = resume_params.get("chunksize", chunksize)
         tumour_filter = resume_params.get("tumour_filter", tumour_filter)
+        parallel_shard_count = resume_params.get("parallel_shard_count", parallel_shard_count)
+        parallel_shard_index = resume_params.get("parallel_shard_index", parallel_shard_index)
         per_sample_count = resume_params.get("per_sample_count", per_sample_count)
+
+    parallel_shard_count = int(parallel_shard_count)
+    parallel_shard_index = int(parallel_shard_index)
+    if parallel_shard_count < 1:
+        raise ValueError("parallel_shard_count must be >= 1.")
+    if parallel_shard_index < 0 or parallel_shard_index >= parallel_shard_count:
+        raise ValueError(
+            "parallel_shard_index must be in [0, parallel_shard_count). "
+            f"Got index={parallel_shard_index}, count={parallel_shard_count}."
+        )
 
     accessibility_prefix = "atac" if atac_map_path is not None else "dnase"
     logger = setup_rich_logging(
@@ -1004,6 +1018,23 @@ def run_grid_experiment(
                         )
     if not execution_setups:
         raise ValueError("No execution setups were generated.")
+    if parallel_shard_count > 1:
+        execution_setups = [
+            setup
+            for idx, setup in enumerate(execution_setups)
+            if idx % parallel_shard_count == parallel_shard_index
+        ]
+        logger.info(
+            "Applying setup sharding: shard %d/%d, setups in shard=%d",
+            parallel_shard_index,
+            parallel_shard_count,
+            len(execution_setups),
+        )
+        if not execution_setups:
+            raise ValueError(
+                "No execution setups assigned to this shard. "
+                f"index={parallel_shard_index}, count={parallel_shard_count}."
+            )
     track_strategies = list(dict.fromkeys(str(setup["track_strategy"]) for setup in execution_setups))
 
     normalised_dnase: Dict[str, Path] = {}
@@ -1120,6 +1151,8 @@ def run_grid_experiment(
             "chroms": None if chroms is None else list(chroms),
             "standardise_tracks": bool(standardise_tracks),
             "standardise_scope": str(standardise_scope),
+            "parallel_shard_count": int(parallel_shard_count),
+            "parallel_shard_index": int(parallel_shard_index),
             "pearson_score_window_bins": int(pearson_score_window_bins),
             "pearson_score_smoothing": str(pearson_score_smoothing),
             "pearson_score_smooth_param": None
@@ -2174,6 +2207,8 @@ def resume_experiment(out_dir: str | Path) -> pd.DataFrame:
         save_per_bin=params.get("save_per_bin", True),
         chunksize=params.get("chunksize", 250_000),
         tumour_filter=params.get("tumour_filter"),
+        parallel_shard_count=params.get("parallel_shard_count", 1),
+        parallel_shard_index=params.get("parallel_shard_index", 0),
         per_sample_count=params.get("per_sample_count"),
         out_dir=out_dir_path,
         resume=True,

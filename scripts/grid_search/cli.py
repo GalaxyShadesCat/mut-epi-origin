@@ -278,6 +278,21 @@ def main() -> None:
     )
     parser.add_argument("--save-per-bin", action="store_true", help="Save per-bin tables for inspection")
     parser.add_argument(
+        "--parallel-shard-count",
+        type=int,
+        default=1,
+        help=(
+            "Total number of setup shards. Use with --parallel-shard-index to run "
+            "setups in parallel across multiple processes."
+        ),
+    )
+    parser.add_argument(
+        "--parallel-shard-index",
+        type=int,
+        default=0,
+        help="0-based shard index to execute (must be < --parallel-shard-count).",
+    )
+    parser.add_argument(
         "--per-sample-count",
         type=str,
         default="0",
@@ -488,6 +503,8 @@ def main() -> None:
         out_dir=args.out_dir,
         save_per_bin=bool(args.save_per_bin),
         tumour_filter=tumour_filter,
+        parallel_shard_count=int(args.parallel_shard_count),
+        parallel_shard_index=int(args.parallel_shard_index),
         counts_raw_bins=counts_raw_bins,
         counts_gauss_bins=counts_gauss_bins,
         inv_dist_gauss_bins=inv_dist_gauss_bins,
