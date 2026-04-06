@@ -11,6 +11,8 @@ dependencies:
   # R packages (conda builds)
   - r-seurat
   - r-signac
+  - bioconductor-deseq2
+  - r-data.table
 
   # Genomics tools
   - bedtools

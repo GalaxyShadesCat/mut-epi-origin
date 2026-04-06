@@ -161,6 +161,38 @@ python scripts/validate_state_scores.py \
   --allow-aggregated-results
 ```
 
+### Step 8: Run gene-level differential mutation analysis from inferred labels
+
+Script: `scripts/run_differential_mutation_by_inferred_labels.py`
+
+This step tests gene-level mutation frequency differences between two inferred
+label groups using Fisher's exact test. It is differential mutation analysis,
+not RNA-seq differential expression.
+
+Example command:
+
+```bash
+python scripts/run_differential_mutation_by_inferred_labels.py \
+  --mutation-path data/raw/mutations/data_mutations.txt \
+  --delim tab \
+  --output-dir outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/dm_counts_raw_500k_spearman_r_linear_resid_from_data_mutations
+```
+
+Minimum input requirements:
+- A mutation table with sample and gene columns (for example `Tumor_Sample_Barcode` and `Hugo_Symbol`).
+- Inferred labels file at `outputs/experiments/<run_name>/validation_score_rankings.csv` (default path is preconfigured in the script).
+- Exactly two label groups remaining after script filters.
+
+Outputs:
+- `sample_labels_used.csv`
+- `differential_mutation_results_all.csv`
+- `differential_mutation_results_significant.csv`
+- `run_summary.txt`
+
+Significance reporting:
+- `differential_mutation_results_all.csv` includes `fdr_bh` and `is_significant_fdr`.
+- `differential_mutation_results_significant.csv` contains rows with `fdr_bh <= 0.05` by default.
+
 ### Dependency flow (quick view)
 
 Grid search needs two inputs:

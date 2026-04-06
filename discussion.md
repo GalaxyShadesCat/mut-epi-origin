@@ -385,3 +385,84 @@ python scripts/validate_state_scores_adjusted.py \
   --skip-sensitivity-model \
   --allow-aggregated-results
 ```
+
+---
+
+## Update: Deduplicated + Mutation-Burden-Adjusted Results (Recomputed From Scratch)
+
+Conditions used for this recomputation:
+
+- Metadata deduplicated by `tumour_sample_submitter_id` (first row retained per ID)
+- Mutation burden covariate derived from `results.csv` as `log1p(n_mutations_total)`
+- Validation source: `validation_score_rankings.csv`
+- Threshold grid: `score_gap >= {0.0, 0.005, 0.01, 0.02, 0.03}`
+- Inclusion filter for this table: `n_total >= 50`
+- Label-level test: logistic likelihood-ratio test (LRT) against burden-only model
+- Score-level test: OLS nested-model F-test against burden-only model
+- Significance rule for this table: raw `p < 0.05`
+
+### Verified significant rows (`p < 0.05`, `n_total >= 50`)
+
+| level | threshold | config | scoring | attribute | n | test | p-value |
+|---|---:|---|---|---|---:|---|---:|
+| label | 0.000 | `counts_raw|500000` | `spearman_local_score` | `nafld_status` | 72 | logistic LRT (adj.) | 0.006577 |
+| label | 0.000 | `exp_decay|1000000` | `pearson_r_linear_resid` | `obesity_class` | 152 | logistic LRT (adj.) | 0.006921 |
+| label | 0.010 | `exp_decay|1000000` | `spearman_r_linear_resid` | `obesity_class` | 61 | logistic LRT (adj.) | 0.008254 |
+| label | 0.010 | `counts_raw|1000000` | `spearman_r_linear_resid` | `obesity_class` | 64 | logistic LRT (adj.) | 0.009103 |
+| label | 0.000 | `counts_raw|500000` | `pearson_r_linear_resid` | `nafld_status` | 72 | logistic LRT (adj.) | 0.010890 |
+| label | 0.010 | `counts_raw|1000000` | `rf_resid` | `obesity_class` | 52 | logistic LRT (adj.) | 0.011281 |
+| label | 0.000 | `counts_raw|1000000` | `pearson_r_linear_resid` | `obesity_class` | 152 | logistic LRT (adj.) | 0.020304 |
+| score | 0.000 | `counts_raw|1000000` | `rf_resid` | `obesity_class` | 152 | OLS F-test (adj.) | 0.021136 |
+| score | 0.010 | `counts_raw|1000000` | `rf_resid` | `obesity_class` | 52 | OLS F-test (adj.) | 0.023488 |
+| label | 0.005 | `exp_decay|1000000` | `rf_resid` | `obesity_class` | 103 | logistic LRT (adj.) | 0.023786 |
+| score | 0.005 | `counts_raw|1000000` | `rf_resid` | `obesity_class` | 105 | OLS F-test (adj.) | 0.025825 |
+| label | 0.000 | `counts_raw|500000` | `spearman_r_linear_resid` | `nafld_status` | 72 | logistic LRT (adj.) | 0.026156 |
+| score | 0.005 | `exp_decay|500000` | `spearman_local_score` | `hbv_status` | 69 | OLS F-test (adj.) | 0.030074 |
+| label | 0.000 | `counts_raw|500000` | `rf_resid` | `nafld_status` | 72 | logistic LRT (adj.) | 0.035649 |
+| label | 0.000 | `counts_raw|500000` | `spearman_r_linear_resid` | `obesity_class` | 152 | logistic LRT (adj.) | 0.040241 |
+| score | 0.010 | `exp_decay|500000` | `pearson_r_linear_resid` | `fibrosis_present` | 55 | OLS F-test (adj.) | 0.041929 |
+| label | 0.000 | `counts_raw|500000` | `spearman_r_linear_resid` | `fibrosis_present` | 152 | logistic LRT (adj.) | 0.047480 |
+| label | 0.005 | `counts_raw|1000000` | `pearson_r_linear_resid` | `obesity_class` | 112 | logistic LRT (adj.) | 0.049276 |
+
+---
+
+## Highlighted config: `counts_raw|500000` + `spearman_r_linear_resid`
+
+At `score_gap >= 0.000`, this highlighted configuration has three adjusted label-level signals:
+
+- `nafld_status` (`n=72`, logistic LRT adjusted `p=0.026156`)
+- `fibrosis_present` (`n=152`, logistic LRT adjusted `p=0.047480`)
+- `obesity_class` (`n=152`, logistic LRT adjusted `p=0.040241`)
+
+Direction (from observed label proportions):
+
+- `nafld_status_yes -> abnormal`
+- `fibrosis_present_yes -> abnormal`
+- `obesity_class_underweight -> abnormal` (highest abnormal proportion among obesity categories)
+
+### Contingency tables for highlighted config (`score_gap >= 0.000`)
+
+`nafld_status` (`n_total=72`)
+
+| nafld_status | foxa2_abnormal_zero | foxa2_normal_pos | total | abnormal % |
+|---|---:|---:|---:|---:|
+| no  | 8 | 55 | 63 | 12.7 |
+| yes | 4 | 5  | 9  | 44.4 |
+
+`fibrosis_present` (`n_total=152`)
+
+| fibrosis_present | foxa2_abnormal_zero | foxa2_normal_pos | total | abnormal % |
+|---|---:|---:|---:|---:|
+| no  | 4  | 38 | 42  | 9.5 |
+| yes | 25 | 85 | 110 | 22.7 |
+
+`obesity_class` (`n_total=152`)
+
+| obesity_class | foxa2_abnormal_zero | foxa2_normal_pos | total | abnormal % |
+|---|---:|---:|---:|---:|
+| normal | 8 | 43 | 51 | 15.7 |
+| obesity class i | 3 | 13 | 16 | 18.8 |
+| obesity class ii | 0 | 4 | 4 | 0.0 |
+| obesity class iii | 5 | 40 | 45 | 11.1 |
+| overweight | 9 | 20 | 29 | 31.0 |
+| underweight | 4 | 3 | 7 | 57.1 |
