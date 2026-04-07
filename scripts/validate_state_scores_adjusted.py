@@ -150,7 +150,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--metadata-path",
-        default="data/derived/master_sample_metadata_lihc_fibrosis.csv",
+        default="data/derived/master_metadata.csv",
         help="Path to sample metadata CSV.",
     )
     parser.add_argument(

@@ -156,7 +156,7 @@ Important defaults in `score_clinvar_grid.py`:
 - scoring systems: `rf_resid,pearson_local_score,spearman_local_score,pearson_r_linear_resid,spearman_r_linear_resid`
 - maximum CV folds: `5` (uses `min(cv_folds, n_samples)` per group)
 - score inversion: enabled by default (because mutation-accessibility correlation is expected to be negative)
-- metadata file: `data/derived/master_sample_metadata_lihc_fibrosis.csv`
+- metadata file: `data/derived/master_metadata.csv`
 - metadata sample column: `tumour_sample_submitter_id`
 
 Useful optional flags:
@@ -169,7 +169,7 @@ Useful optional flags:
 
 For a NAFLD-oriented run (without requiring fibrosis columns in metadata), pass:
 
-- `--metadata-path data/derived/master_sample_metadata_lihc_nafld.csv`
+- `--metadata-path data/derived/master_metadata.csv`
 - `--modelling-targets nafld_status`
 - `--group-test-vars nafld_status,obesity_class`
 - `--correlation-vars nafld_status`
@@ -226,7 +226,7 @@ NAFLD-focused setup (fibrosis optional):
 ```bash
 python scripts/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
-  --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
+  --metadata-path data/derived/master_metadata.csv \
   --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
   --state-suffixes normal,ac,ah \
   --modelling-targets nafld_status \

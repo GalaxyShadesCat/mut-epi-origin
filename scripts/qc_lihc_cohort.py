@@ -2,7 +2,7 @@
 """Run QC and conservative cleaning for the LIHC master cohort metadata.
 
 This script audits:
-- data/derived/master_sample_metadata.csv
+- data/derived/master_metadata.csv
 
 It normalises missing tokens, removes exact duplicate rows, filters to LIHC rows with
 targeted phenotype completeness (fibrosis, NAFLD, and HCV variants), and writes
@@ -19,15 +19,15 @@ import pandas as pd
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 DERIVED_DIR = BASE_DIR / "data" / "derived"
-INPUT_PATH = DERIVED_DIR / "master_sample_metadata.csv"
+INPUT_PATH = DERIVED_DIR / "master_metadata.csv"
 
-CLEANED_CSV = DERIVED_DIR / "master_sample_metadata_cleaned.csv"
-FIBROSIS_CSV = DERIVED_DIR / "master_sample_metadata_lihc_fibrosis.csv"
-NAFLD_CSV = DERIVED_DIR / "master_sample_metadata_lihc_nafld.csv"
-HCV_CSV = DERIVED_DIR / "master_sample_metadata_lihc_hcv.csv"
-ALL_CSV = DERIVED_DIR / "master_sample_metadata_lihc_all.csv"
-ROWS_WITH_ISSUES_CSV = DERIVED_DIR / "master_sample_metadata_rows_with_issues.csv"
-QC_REPORT = DERIVED_DIR / "master_sample_metadata_qc_report.txt"
+CLEANED_CSV = DERIVED_DIR / "master_metadata_cleaned.csv"
+FIBROSIS_CSV = DERIVED_DIR / "master_metadata_lihc_fibrosis.csv"
+NAFLD_CSV = DERIVED_DIR / "master_metadata_lihc_nafld.csv"
+HCV_CSV = DERIVED_DIR / "master_metadata_lihc_hcv.csv"
+ALL_CSV = DERIVED_DIR / "master_metadata_lihc_all.csv"
+ROWS_WITH_ISSUES_CSV = DERIVED_DIR / "master_metadata_rows_with_issues.csv"
+QC_REPORT = DERIVED_DIR / "master_metadata_qc_report.txt"
 
 MISSING_TOKENS = {
     "",
@@ -104,12 +104,30 @@ def missingness_metrics(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame
 def build_simplified_table(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep relevant columns and standardise to one column per risk attribute."""
     out = frame.copy()
-    out["alcohol_status"] = out["risk_alcohol"].apply(normalise_value) if "risk_alcohol" in out.columns else pd.NA
-    out["hbv_status"] = out["risk_hbv"].apply(normalise_value) if "risk_hbv" in out.columns else pd.NA
-    out["hcv_status"] = out["risk_hcv"].apply(normalise_value) if "risk_hcv" in out.columns else pd.NA
-    out["nafld_status"] = out["risk_nafld"].apply(normalise_value) if "risk_nafld" in out.columns else pd.NA
+    out["alcohol_status"] = (
+        out["alcohol"].apply(normalise_value)
+        if "alcohol" in out.columns
+        else (out["risk_alcohol"].apply(normalise_value) if "risk_alcohol" in out.columns else pd.NA)
+    )
+    out["hbv_status"] = (
+        out["hbv"].apply(normalise_value)
+        if "hbv" in out.columns
+        else (out["risk_hbv"].apply(normalise_value) if "risk_hbv" in out.columns else pd.NA)
+    )
+    out["hcv_status"] = (
+        out["hcv"].apply(normalise_value)
+        if "hcv" in out.columns
+        else (out["risk_hcv"].apply(normalise_value) if "risk_hcv" in out.columns else pd.NA)
+    )
+    out["nafld_status"] = (
+        out["nafld"].apply(normalise_value)
+        if "nafld" in out.columns
+        else (out["risk_nafld"].apply(normalise_value) if "risk_nafld" in out.columns else pd.NA)
+    )
     out["obesity_class"] = (
-        out["obesity_class_from_bmi"].apply(normalise_value) if "obesity_class_from_bmi" in out.columns else pd.NA
+        out["obesity_class"].apply(normalise_value)
+        if "obesity_class" in out.columns
+        else (out["obesity_class_from_bmi"].apply(normalise_value) if "obesity_class_from_bmi" in out.columns else pd.NA)
     )
     out["fibrosis_ishak_score"] = (
         out["fibrosis_ishak_source_of_truth"].apply(normalise_value)
@@ -188,26 +206,31 @@ def main() -> None:
     cleaned["row_issue_flag"] = cleaned["row_issue_notes"].notna()
 
     lihc_tumour_base = _lihc_tumour_base_filter(cleaned)
+    alcohol_col = "alcohol" if "alcohol" in lihc_tumour_base.columns else "risk_alcohol"
+    hbv_col = "hbv" if "hbv" in lihc_tumour_base.columns else "risk_hbv"
+    hcv_col = "hcv" if "hcv" in lihc_tumour_base.columns else "risk_hcv"
+    nafld_col = "nafld" if "nafld" in lihc_tumour_base.columns else "risk_nafld"
+    obesity_col = "obesity_class" if "obesity_class" in lihc_tumour_base.columns else "obesity_class_from_bmi"
     all_lihc = lihc_tumour_base[
-        lihc_tumour_base["risk_alcohol"].apply(normalise_value).notna()
-        & lihc_tumour_base["risk_hbv"].apply(normalise_value).notna()
-        & lihc_tumour_base["risk_hcv"].apply(normalise_value).notna()
-        & lihc_tumour_base["risk_nafld"].apply(normalise_value).notna()
-        & lihc_tumour_base["obesity_class_from_bmi"].apply(normalise_value).notna()
+        lihc_tumour_base[alcohol_col].apply(normalise_value).notna()
+        & lihc_tumour_base[hbv_col].apply(normalise_value).notna()
+        & lihc_tumour_base[hcv_col].apply(normalise_value).notna()
+        & lihc_tumour_base[nafld_col].apply(normalise_value).notna()
+        & lihc_tumour_base[obesity_col].apply(normalise_value).notna()
         & lihc_tumour_base["ishak_fibrosis_score"].apply(normalise_value).notna()
     ].copy()
     fibrosis = lihc_tumour_base[
         lihc_tumour_base["ishak_fibrosis_score"].apply(normalise_value).notna()
     ].copy()
-    if "risk_nafld" in lihc_tumour_base.columns:
+    if nafld_col in lihc_tumour_base.columns:
         nafld = lihc_tumour_base[
-            lihc_tumour_base["risk_nafld"].apply(normalise_value).notna()
+            lihc_tumour_base[nafld_col].apply(normalise_value).notna()
         ].copy()
     else:
         nafld = lihc_tumour_base.iloc[0:0].copy()
-    if "risk_hcv" in lihc_tumour_base.columns:
+    if hcv_col in lihc_tumour_base.columns:
         hcv = lihc_tumour_base[
-            lihc_tumour_base["risk_hcv"].apply(normalise_value).notna()
+            lihc_tumour_base[hcv_col].apply(normalise_value).notna()
         ].copy()
     else:
         hcv = lihc_tumour_base.iloc[0:0].copy()

@@ -2,12 +2,15 @@
 """Build a LIHC-focused master metadata table with harmonised risk annotations.
 
 This script merges TCGA WGS metadata shards, keeps LIHC paired tumour-normal files,
-and enriches records with annotations from:
+and enriches records with case-level clinical, follow-up, family history, and
+annotation data from:
 - data/raw/annotations/mmc1.xlsx (Table S1A)
 - data/raw/annotations/TCGA.LIHC.sampleMap_LIHC_clinicalMatrix.tsv
 
 It standardises alcohol, viral hepatitis, obesity, and fibrosis-related variables
-into explicit harmonised columns and writes one CSV output.
+into explicit harmonised columns and writes one sample-level CSV output. If multiple
+file rows map to the same tumour sample, it keeps the largest file (deterministic
+tie-break by file name then file id).
 """
 
 from __future__ import annotations
@@ -28,11 +31,12 @@ RAW_DIRS = [
 ]
 ANNOTATIONS_DIR = BASE_DIR / "data" / "raw" / "annotations"
 DERIVED_DIR = BASE_DIR / "data" / "derived"
-OUTPUT_CSV = DERIVED_DIR / "master_sample_metadata.csv"
+OUTPUT_CSV = DERIVED_DIR / "master_metadata.csv"
 
 MISSING_TOKENS = {
     "",
     "'--",
+    "--",
     "Not Reported",
     "Not Applicable",
     "Unknown",
@@ -67,6 +71,9 @@ def normalise_value(value: object) -> str | None:
     if pd.isna(value):
         return None
     text = str(value).strip()
+    # Some source fields use a leading apostrophe as a text marker (for example "'23.4").
+    if text.startswith("'") and text.count("'") == 1:
+        text = text[1:].strip()
     if text in MISSING_TOKENS:
         return None
     return text
@@ -107,6 +114,42 @@ def aggregate_case_table(
 def deduplicate_by_key(frame: pd.DataFrame, key: str) -> pd.DataFrame:
     """Deduplicate a table by key, keeping first seen row."""
     return frame.drop_duplicates(subset=[key], keep="first")
+
+
+def has_any_non_missing(series: pd.Series) -> bool:
+    """Return True when a series contains at least one non-missing value."""
+    return bool(series.map(normalise_value).notna().any())
+
+
+def select_largest_file_per_sample(frame: pd.DataFrame) -> pd.DataFrame:
+    """Return one row per tumour sample, selecting the largest file per sample."""
+    work = frame.copy()
+    work["file_size_numeric"] = pd.to_numeric(work["file_size"], errors="coerce").fillna(-1)
+    work["sample_key"] = work["tumour_sample_submitter_id"].map(normalise_value)
+    work["sample_key"] = work["sample_key"].fillna(work["tumour_sample_id"].map(normalise_value))
+    work = work[work["sample_key"].notna()].copy()
+    work = work.sort_values(
+        ["sample_key", "file_size_numeric", "file_name", "file_id"],
+        ascending=[True, False, True, True],
+    )
+    work = work.drop_duplicates(subset=["sample_key"], keep="first").copy()
+    return work.drop(columns=["sample_key", "file_size_numeric"])
+
+
+def assert_unique_key(frame: pd.DataFrame, key_col: str, label: str) -> None:
+    """Assert that a key column is unique after excluding missing keys."""
+    work = frame.copy()
+    work[key_col] = work[key_col].map(normalise_value)
+    work = work[work[key_col].notna()].copy()
+    if work.empty:
+        return
+    duplicate_mask = work.duplicated(subset=[key_col], keep=False)
+    if not duplicate_mask.any():
+        return
+    duplicate_keys = sorted(work.loc[duplicate_mask, key_col].unique().tolist())
+    preview = ", ".join(duplicate_keys[:10])
+    extra = "" if len(duplicate_keys) <= 10 else f" (+{len(duplicate_keys) - 10} more)"
+    raise ValueError(f"{label} key '{key_col}' is not unique for keys: {preview}{extra}")
 
 
 def load_json_shards(filename: str) -> list[dict[str, object]]:
@@ -297,6 +340,7 @@ def parse_float(value: object) -> float | None:
     text = normalise_value(value)
     if text is None:
         return None
+    text = text.replace(",", "")
     try:
         return float(text)
     except ValueError:
@@ -391,6 +435,8 @@ def load_annotations_harmonised() -> pd.DataFrame:
         "Cirrhosis",
         "liver_fibrosis_ishak_score_category",
     ]].copy()
+    mmc["tumour_sample_id"] = mmc["tumour_sample_id"].map(normalise_value)
+    mmc = mmc[mmc["tumour_sample_id"].notna()].copy()
 
     # Build source-specific fields from clinicalMatrix (sample barcode key)
     cm_fields = cm[[
@@ -401,6 +447,8 @@ def load_annotations_harmonised() -> pd.DataFrame:
         "height",
         "fibrosis_ishak_score",
     ]].copy()
+    cm_fields["sample_barcode_norm"] = cm_fields["sample_barcode_norm"].map(normalise_value)
+    cm_fields = cm_fields[cm_fields["sample_barcode_norm"].notna()].copy()
 
     # Produce normalised risk flags in mmc1 source
     mmc["alcohol_mmc1"] = mmc["Alcoholic liver disease"].apply(
@@ -449,6 +497,10 @@ def load_annotations_harmonised() -> pd.DataFrame:
         axis=1,
     )
 
+    # Ensure join keys are unique before merge.
+    assert_unique_key(mmc, "tumour_sample_id", "mmc1 annotations")
+    assert_unique_key(cm_fields, "sample_barcode_norm", "clinicalMatrix annotations")
+
     # return both source frames for later joins
     mmc = mmc.drop_duplicates(subset=["tumour_sample_id"])
     cm_fields = cm_fields.drop_duplicates(subset=["sample_barcode_norm"])
@@ -469,6 +521,8 @@ def main() -> None:
     portion = load_tsv_shards("portion.tsv", dedup_key="portion_id")
     sample = load_tsv_shards("sample.tsv", dedup_key="sample_id")
     clinical = load_tsv_shards("clinical.tsv", dedup_exact=True)
+    follow_up = load_tsv_shards("follow_up.tsv", dedup_exact=True)
+    family_history = load_tsv_shards("family_history.tsv", dedup_exact=True)
     pathology = load_tsv_shards("pathology_detail.tsv", dedup_exact=True)
 
     gdc_sample_sheet = gdc_sample_sheet.rename(
@@ -513,7 +567,47 @@ def main() -> None:
         .reset_index(drop=True)
     )
 
-    clinical_cols = ["primary_diagnosis", "morphology", "tumor_grade", "ishak_fibrosis_score"]
+    clinical_cols = [
+        "primary_diagnosis",
+        "morphology",
+        "tumor_grade",
+        "ishak_fibrosis_score",
+        "age_at_diagnosis",
+        "age_at_index",
+        "days_to_birth",
+        "gender",
+        "race",
+        "ethnicity",
+        "year_of_diagnosis",
+        "vital_status",
+        "classification_of_tumor",
+        "tissue_or_organ_of_origin",
+        "ajcc_pathologic_t",
+        "ajcc_pathologic_n",
+        "ajcc_pathologic_m",
+        "ajcc_pathologic_stage",
+        "child_pugh_classification",
+        "initial_disease_status",
+        "prior_treatment",
+        "treatment_or_therapy",
+        "treatment_type",
+        "treatment_intent_type",
+        "days_to_treatment_start",
+    ]
+    follow_up_cols = [
+        "days_to_follow_up",
+        "ecog_performance_status",
+        "disease_response",
+        "progression_or_recurrence",
+        "days_to_recurrence",
+        "progression_or_recurrence_type",
+        "progression_or_recurrence_anatomic_site",
+    ]
+    family_history_cols = [
+        "relative_with_cancer_history",
+        "relatives_with_cancer_history_count",
+        "relationship_primary_diagnosis",
+    ]
     pathology_cols = [
         "additional_pathology_findings",
         "histologic_progression_type",
@@ -523,15 +617,28 @@ def main() -> None:
     ]
 
     clinical_agg = aggregate_case_table(clinical, "case_id", clinical_cols, "clinical")
+    follow_up_agg = aggregate_case_table(follow_up, "case_id", follow_up_cols, "follow_up")
+    family_history_agg = aggregate_case_table(family_history, "case_id", family_history_cols, "family_history")
     pathology_agg = aggregate_case_table(pathology, "case_id", pathology_cols, "pathology")
 
     master = file_meta.merge(role_table, on="file_id", how="left", validate="1:1")
     master = master.merge(clinical_agg[["case_id"] + clinical_cols + ["clinical_aggregation_notes"]], on="case_id", how="left")
+    master = master.merge(
+        follow_up_agg[["case_id"] + follow_up_cols + ["follow_up_aggregation_notes"]],
+        on="case_id",
+        how="left",
+    )
+    master = master.merge(
+        family_history_agg[["case_id"] + family_history_cols + ["family_history_aggregation_notes"]],
+        on="case_id",
+        how="left",
+    )
     master = master.merge(pathology_agg[["case_id"] + pathology_cols + ["pathology_aggregation_notes"]], on="case_id", how="left")
     master = master.rename(columns={"tumor_grade": "tumour_grade"})
 
     # LIHC-only focus
     master = master[master["project_id"] == "TCGA-LIHC"].copy()
+    master = select_largest_file_per_sample(master)
 
     # Annotation harmonisation joins
     mmc, cm = load_annotations_harmonised()
@@ -579,31 +686,26 @@ def main() -> None:
         )
     )
 
-    master["risk_alcohol"] = list(alcohol_final)
-    master["risk_hbv"] = list(hbv_final)
-    master["risk_hcv"] = list(hcv_final)
-    master["risk_nafld"] = list(nafld_final)
-    master["risk_alcohol_conflict"] = list(alcohol_conflict)
-    master["risk_hbv_conflict"] = list(hbv_conflict)
-    master["risk_hcv_conflict"] = list(hcv_conflict)
-    master["risk_nafld_conflict"] = list(nafld_conflict)
+    master["alcohol"] = list(alcohol_final)
+    master["hbv"] = list(hbv_final)
+    master["hcv"] = list(hcv_final)
+    master["nafld"] = list(nafld_final)
+    master["alcohol_conflict"] = list(alcohol_conflict)
+    master["hbv_conflict"] = list(hbv_conflict)
+    master["hcv_conflict"] = list(hcv_conflict)
+    master["nafld_conflict"] = list(nafld_conflict)
 
     # Obesity harmonisation (calculate BMI from height/weight first; fall back to curated mmc1 BMI)
     master["bmi_mmc1"] = master["bmi_mmc1"].apply(lambda x: parse_float(x))
     master["bmi_cm"] = master["bmi_cm"].apply(lambda x: parse_float(x))
-    master["bmi_final"] = master.apply(
+    master["bmi"] = master.apply(
         lambda r: r["bmi_cm"] if pd.notna(r["bmi_cm"]) else (r["bmi_mmc1"] if pd.notna(r["bmi_mmc1"]) else None),
         axis=1,
     )
-    master["obesity_class_from_bmi"] = master["bmi_final"].apply(bmi_class_from_value)
+    master["obesity_class"] = master["bmi"].apply(bmi_class_from_value)
     master["obesity_class_mmc1"] = master["obesity_class_mmc1"].map(normalise_value)
-    master["obesity_class_conflict"] = master.apply(
-        lambda r: (
-            r["obesity_class_mmc1"] is not None
-            and r["obesity_class_from_bmi"] is not None
-            and r["obesity_class_mmc1"].lower() != r["obesity_class_from_bmi"].lower()
-        ),
-        axis=1,
+    master["cirrhosis"] = master["Cirrhosis"].apply(
+        lambda x: yes_no_from_value(x, {"cirrhosis"})
     )
 
     # Fibrosis standardisation with a single source of truth:
@@ -635,18 +737,114 @@ def main() -> None:
 
     # Final clean-up
     master["ishak_fibrosis_score"] = master["fibrosis_ishak_source_of_truth"]
-    master = master.drop(columns=[c for c in ["tumour_sample_id_norm", "tumour_sample_id_mmc", "tumour_sample_submitter_id_norm", "sample_barcode_norm"] if c in master.columns])
+    master = master.drop(
+        columns=[
+            c
+            for c in [
+                "tumour_sample_id_norm",
+                "tumour_sample_id_mmc",
+                "tumour_sample_submitter_id_norm",
+                "sample_barcode_norm",
+            ]
+            if c in master.columns
+        ]
+    )
+
+    output_columns = [
+        "file_id",
+        "file_name",
+        "data_category",
+        "data_type",
+        "experimental_strategy",
+        "workflow_type",
+        "workflow_version",
+        "project_id",
+        "case_id",
+        "case_submitter_id",
+        "tumour_sample_id",
+        "tumour_sample_submitter_id",
+        "normal_sample_id",
+        "normal_sample_submitter_id",
+        "tumour_aliquot_id",
+        "normal_aliquot_id",
+        "tumour_sample_type",
+        "normal_sample_type",
+        "tumour_tissue_type",
+        "normal_tissue_type",
+        "has_paired_normal",
+        "tumour_normal_class",
+        "qc_notes",
+        "primary_diagnosis",
+        "morphology",
+        "tumour_grade",
+        "age_at_diagnosis",
+        "age_at_index",
+        "days_to_birth",
+        "gender",
+        "race",
+        "ethnicity",
+        "year_of_diagnosis",
+        "vital_status",
+        "classification_of_tumor",
+        "tissue_or_organ_of_origin",
+        "ajcc_pathologic_t",
+        "ajcc_pathologic_n",
+        "ajcc_pathologic_m",
+        "ajcc_pathologic_stage",
+        "child_pugh_classification",
+        "initial_disease_status",
+        "prior_treatment",
+        "treatment_or_therapy",
+        "treatment_type",
+        "treatment_intent_type",
+        "days_to_treatment_start",
+        "days_to_follow_up",
+        "ecog_performance_status",
+        "disease_response",
+        "progression_or_recurrence",
+        "days_to_recurrence",
+        "progression_or_recurrence_type",
+        "progression_or_recurrence_anatomic_site",
+        "relative_with_cancer_history",
+        "relatives_with_cancer_history_count",
+        "relationship_primary_diagnosis",
+        "ishak_fibrosis_score",
+        "clinical_aggregation_notes",
+        "follow_up_aggregation_notes",
+        "family_history_aggregation_notes",
+        "additional_pathology_findings",
+        "histologic_progression_type",
+        "vascular_invasion_present",
+        "vascular_invasion_type",
+        "margin_status",
+        "pathology_aggregation_notes",
+        "alcohol",
+        "hbv",
+        "hcv",
+        "nafld",
+        "bmi",
+        "obesity_class",
+        "cirrhosis",
+        "fibrosis_ishak_ordinal",
+        "fibrosis_present",
+    ]
+    output_columns = [
+        c
+        for c in output_columns
+        if c in master.columns and has_any_non_missing(master[c])
+    ]
+    master = master[output_columns].copy()
 
     master.to_csv(OUTPUT_CSV, index=False)
 
     print("\nLIHC master metadata built.")
     print(f"rows={len(master)}")
     print(f"unique_files={master['file_id'].nunique()}")
-    print(f"alcohol_non_missing={(master['risk_alcohol'].notna()).sum()}")
-    print(f"hbv_non_missing={(master['risk_hbv'].notna()).sum()}")
-    print(f"hcv_non_missing={(master['risk_hcv'].notna()).sum()}")
-    print(f"bmi_non_missing={(master['bmi_final'].notna()).sum()}")
-    print(f"fibrosis_non_missing={(master['fibrosis_ishak_source_of_truth'].notna()).sum()}")
+    print(f"alcohol_non_missing={(master['alcohol'].notna()).sum()}")
+    print(f"hbv_non_missing={(master['hbv'].notna()).sum()}")
+    print(f"hcv_non_missing={(master['hcv'].notna()).sum()}")
+    print(f"bmi_non_missing={(master['bmi'].notna()).sum()}")
+    print(f"fibrosis_non_missing={(master['ishak_fibrosis_score'].notna()).sum()}")
     print(f"output={OUTPUT_CSV}")
 
 

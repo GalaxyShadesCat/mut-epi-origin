@@ -29,7 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--metadata-csv",
         type=Path,
-        default=Path("data/derived/master_sample_metadata.csv"),
+        default=Path("data/derived/master_metadata.csv"),
         help="Input metadata CSV path.",
     )
     parser.add_argument(

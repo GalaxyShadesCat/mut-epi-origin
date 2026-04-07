@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 from tools.results_dashboard.core import _style
 
 EXPERIMENTS_DIR = ROOT / "outputs" / "experiments"
-DEFAULT_METADATA_PATH = ROOT / "data" / "derived" / "master_sample_metadata_lihc_fibrosis.csv"
+DEFAULT_METADATA_PATH = ROOT / "data" / "derived" / "master_metadata.csv"
 
 VALIDATION_FILES = {
     "group_tests": "validation_group_tests.csv",

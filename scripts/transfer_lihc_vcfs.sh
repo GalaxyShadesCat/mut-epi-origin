@@ -15,8 +15,8 @@
 #
 # Examples:
 #   bash scripts/transfer_lihc_vcfs.sh --test
-#   bash scripts/transfer_lihc_vcfs.sh --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv --cohort-label nafld
-#   bash scripts/transfer_lihc_vcfs.sh --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv --cohort-label nafld --required-complete-fields alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class
+#   bash scripts/transfer_lihc_vcfs.sh --metadata-csv data/derived/master_metadata.csv --cohort-label nafld
+#   bash scripts/transfer_lihc_vcfs.sh --metadata-csv data/derived/master_metadata.csv --cohort-label nafld --required-complete-fields alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class
 #   bash scripts/transfer_lihc_vcfs.sh --test --ip 10.0.0.1 --port 22 --username alice --password 'secret'
 #   bash scripts/transfer_lihc_vcfs.sh --ip 10.0.0.1 --port 22 --username alice --password 'secret'
 
@@ -25,7 +25,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-METADATA_CSV="${METADATA_CSV:-${PROJECT_ROOT}/data/derived/master_sample_metadata_lihc_fibrosis.csv}"
+METADATA_CSV="${METADATA_CSV:-${PROJECT_ROOT}/data/derived/master_metadata.csv}"
 SRC_DIR="${SRC_DIR:-/nas/Jason/Data/mutationDatabase/WGS_TCGA25/AtoL/VCF}"
 DEST_DIR="${DEST_DIR:-${PROJECT_ROOT}/data/raw/WGS_TCGA25/AtoL/VCF}"
 MANIFEST_DIR="${MANIFEST_DIR:-${PROJECT_ROOT}/data/derived/manifests}"
@@ -51,7 +51,7 @@ Usage:
 
 Options:
   --test        Dry run only. No files are copied.
-  --metadata-csv  Metadata CSV path (default: data/derived/master_sample_metadata_lihc_fibrosis.csv)
+  --metadata-csv  Metadata CSV path (default: data/derived/master_metadata.csv)
   --cohort-label  Label used for manifest naming (default: fibrosis)
   --required-complete-fields  Optional comma list of required non-missing metadata fields
   --ip          Remote SSH host

@@ -33,7 +33,7 @@ python scripts/validate_state_scores.py \
 NAFLD-focused run:
 python scripts/validate_state_scores.py \
   --experiment-name my_experiment_nafld \
-  --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
+  --metadata-path data/derived/master_metadata.csv \
   --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
   --state-suffixes normal,ac,ah \
   --modelling-targets nafld_status \
@@ -269,7 +269,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--metadata-path",
-        default="data/derived/master_sample_metadata_lihc_fibrosis.csv",
+        default="data/derived/master_metadata.csv",
         help="Path to sample metadata CSV.",
     )
     parser.add_argument(
