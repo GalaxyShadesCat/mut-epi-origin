@@ -1,6 +1,6 @@
 # Annotations Provenance (LIHC)
 
-This directory contains external annotation resources used to enrich LIHC metadata in `scripts/build_master_metadata.py`.
+This directory contains external annotation resources used to enrich LIHC metadata in `scripts/99_data_build/build_master_metadata.py`.
 
 ## Source publications and portals
 

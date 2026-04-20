@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from scripts.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
+from scripts.common.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
 
 ROOT = Path(__file__).resolve().parents[2]
 ASSETS_DIR = Path(__file__).resolve().with_name("assets")

@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
-from scripts.dnase_map import DnaseCellTypeMap
+from scripts.common.dnase_map import DnaseCellTypeMap
 
 
 def _resolve_relative_map(data: Dict[str, str | Path], base: Path) -> Dict[str, Path]:

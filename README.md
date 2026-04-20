@@ -10,16 +10,44 @@ pip install -r requirements.txt
 
 If `conda activate` fails, run `conda init` once and restart your shell.
 
-## LIHC data pipeline (ATAC pseudobulk -> metadata -> QC -> transfer -> SNV table -> grid search -> state-score validation)
+## Shared machine-specific data paths
+
+Set machine-specific roots in:
+
+- `config/data_paths.json`
+
+Required key:
+
+- `wgs_tcga25_root`
+
+Example:
+
+```json
+{
+  "wgs_tcga25_root": "data/raw/WGS_TCGA25"
+}
+```
+
+Use an absolute path if your local `WGS_TCGA25` lives outside this repository.
+
+## Active mutation inputs
+
+The current pipeline keeps and uses only:
+
+- `data/raw/mutations/filtered_mutations.bed`
+- `data/raw/mutations/ICGC_WGS_Feb20_mutations.LIHC_LIRI.bed`
+- `data/raw/mutations/lihc_snv_mutation_table.tsv`
+
+## LIHC data pipeline (ATAC pseudobulk -> metadata -> transfer -> SNV table -> grid search -> state-score validation)
 
 Run the steps in this order to build the LIHC SNV mutation table, run mutation-vs-accessibility grid search, and validate inferred state scores.
 
 ### Step 1: Build ATAC pseudobulk bigWig tracks
 
-Script: `scripts/make_atac_pseudobulk.R`
+Script: `scripts/99_data_build/make_atac_pseudobulk.R`
 
 ```bash
-Rscript scripts/make_atac_pseudobulk.R
+Rscript scripts/99_data_build/make_atac_pseudobulk.R
 ```
 
 Important:
@@ -29,46 +57,29 @@ Important:
 
 ### Step 2: Build master metadata
 
-Script: `scripts/build_master_metadata.py`
+Script: `scripts/99_data_build/build_master_metadata.py`
 
 ```bash
-python scripts/build_master_metadata.py
+python scripts/99_data_build/build_master_metadata.py
 ```
 
 Output:
-- `data/derived/master_sample_metadata.csv`
+- `data/derived/master_metadata.csv`
 
-### Step 3: QC and cohort filtering
+### Step 3: Transfer VCFs and build VCF candidate manifest
 
-Script: `scripts/qc_lihc_cohort.py`
-
-```bash
-python scripts/qc_lihc_cohort.py
-```
-
-Outputs:
-- `data/derived/master_sample_metadata_cleaned.csv`
-- `data/derived/master_sample_metadata_lihc_all.csv`
-- `data/derived/master_sample_metadata_lihc_fibrosis.csv`
-- `data/derived/master_sample_metadata_lihc_nafld.csv`
-- `data/derived/master_sample_metadata_lihc_hcv.csv`
-- `data/derived/master_sample_metadata_rows_with_issues.csv`
-- `data/derived/master_sample_metadata_qc_report.txt`
-
-### Step 4: Transfer VCFs and build VCF candidate manifest
-
-Script: `scripts/transfer_lihc_vcfs.sh`
+Script: `scripts/99_data_build/transfer_lihc_vcfs.sh`
 
 Dry run first:
 
 ```bash
-bash scripts/transfer_lihc_vcfs.sh --test
+bash scripts/99_data_build/transfer_lihc_vcfs.sh --test
 ```
 
 Then run the actual transfer:
 
 ```bash
-bash scripts/transfer_lihc_vcfs.sh
+bash scripts/99_data_build/transfer_lihc_vcfs.sh
 ```
 
 By default, this step does not enforce additional complete-case filtering beyond
@@ -77,16 +88,16 @@ the metadata file you provide.
 NAFLD-oriented transfer (keeps fibrosis optional):
 
 ```bash
-bash scripts/transfer_lihc_vcfs.sh \
-  --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv \
+bash scripts/99_data_build/transfer_lihc_vcfs.sh \
+  --metadata-csv data/derived/master_metadata.csv \
   --cohort-label nafld
 ```
 
 If you want strict complete-case filtering, set it explicitly:
 
 ```bash
-bash scripts/transfer_lihc_vcfs.sh \
-  --metadata-csv data/derived/master_sample_metadata_lihc_nafld.csv \
+bash scripts/99_data_build/transfer_lihc_vcfs.sh \
+  --metadata-csv data/derived/master_metadata.csv \
   --cohort-label nafld \
   --required-complete-fields alcohol_status,hbv_status,hcv_status,nafld_status,obesity_class
 ```
@@ -96,18 +107,18 @@ Key outputs:
 - `data/derived/manifests/lihc_tumour_vcf_candidates_<cohort_label>.tsv` (custom cohort label, e.g. `nafld`)
 - `data/raw/WGS_TCGA25/AtoL/VCF/` (mirrored VCF files and index sidecars, including `.vcf.gz.tbi`)
 
-### Step 5: Build the SNV mutation table
+### Step 4: Build the SNV mutation table
 
-Script: `scripts/build_snv_mutation_table.py`
+Script: `scripts/99_data_build/build_snv_mutation_table.py`
 
 ```bash
-python scripts/build_snv_mutation_table.py
+python scripts/99_data_build/build_snv_mutation_table.py
 ```
 
 Output:
 - `data/raw/mutations/lihc_snv_mutation_table.tsv`
 
-### Step 6: Run mutation-vs-accessibility grid search
+### Step 5: Run mutation-vs-accessibility grid search
 
 Entry point:
 - `python -m scripts.grid_search.cli ...`
@@ -122,14 +133,14 @@ Output directory:
 - `outputs/experiments/<run_name>/`
 - Includes `results.csv`, run configs, and resume commands.
 
-### Step 7: Validate inferred state scores against metadata
+### Step 6: Validate inferred state scores against metadata
 
-Script: `scripts/validate_state_scores.py`
+Script: `scripts/01_pan_celltype_benchmark/validate_state_scores.py`
 
 For the 3-state setup:
 
 ```bash
-python scripts/validate_state_scores.py \
+python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
   --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
   --state-suffixes normal,ac,ah \
@@ -139,9 +150,9 @@ python scripts/validate_state_scores.py \
 For a NAFLD-focused validation run (fibrosis columns optional):
 
 ```bash
-python scripts/validate_state_scores.py \
+python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
-  --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
+  --metadata-path data/derived/master_metadata.csv \
   --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
   --state-suffixes normal,ac,ah \
   --modelling-targets nafld_status \
@@ -154,16 +165,16 @@ python scripts/validate_state_scores.py \
 For the 2-state FOXA2 setup:
 
 ```bash
-python scripts/validate_state_scores.py \
+python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
   --experiment-name lihc_foxa2_top4 \
   --state-labels foxa2_normal_pos,foxa2_abnormal_zero \
   --state-suffixes foxa2_normal_pos,foxa2_abnormal_zero \
   --allow-aggregated-results
 ```
 
-### Step 8: Run gene-level differential mutation analysis from inferred labels
+### Step 7: Run gene-level differential mutation analysis from inferred labels
 
-Script: `scripts/run_differential_mutation_by_inferred_labels.py`
+Script: `scripts/03_clinical_associations/run_differential_mutation_by_inferred_labels.py`
 
 This step tests gene-level mutation frequency differences between two inferred
 label groups using Fisher's exact test. It is differential mutation analysis,
@@ -172,10 +183,10 @@ not RNA-seq differential expression.
 Example command:
 
 ```bash
-python scripts/run_differential_mutation_by_inferred_labels.py \
-  --mutation-path data/raw/mutations/data_mutations.txt \
+python scripts/03_clinical_associations/run_differential_mutation_by_inferred_labels.py \
+  --mutation-path data/raw/mutations/lihc_snv_mutation_table.tsv \
   --delim tab \
-  --output-dir outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/dm_counts_raw_500k_spearman_r_linear_resid_from_data_mutations
+  --output-dir outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/dm_counts_raw_500k_spearman_r_linear_resid_from_lihc_snv_table
 ```
 
 Minimum input requirements:
@@ -200,47 +211,22 @@ Grid search needs two inputs:
 - Mutation table (LIHC SNVs)
 
 Flow:
-1. `scripts/make_atac_pseudobulk.R`
+1. `scripts/99_data_build/make_atac_pseudobulk.R`
 : builds `data/processed/ATAC-seq/GSE281574/hg19/*.bigWig`
-2. `scripts/build_master_metadata.py` -> `scripts/qc_lihc_cohort.py` -> `scripts/transfer_lihc_vcfs.sh` -> `scripts/build_snv_mutation_table.py`
+2. `scripts/99_data_build/build_master_metadata.py` -> `scripts/99_data_build/transfer_lihc_vcfs.sh` -> `scripts/99_data_build/build_snv_mutation_table.py`
 : builds `data/raw/mutations/lihc_snv_mutation_table.tsv`
 3. `python -m scripts.grid_search.cli`
 : consumes both inputs above and writes `outputs/experiments/<run_name>/results.csv` plus `outputs/experiments/<run_name>/runs/`
-4. `python scripts/validate_state_scores.py ...`
-: consumes `outputs/experiments/<run_name>/results.csv` and a chosen metadata cohort file (default `data/derived/master_sample_metadata_lihc_fibrosis.csv`)
+4. `python scripts/01_pan_celltype_benchmark/validate_state_scores.py ...`
+: consumes `outputs/experiments/<run_name>/results.csv` and metadata file `data/derived/master_metadata.csv`
 
 ### Notes on cohort logic
 
 - Project focus is `TCGA-LIHC`.
+- Metadata source of truth is `data/derived/master_metadata.csv`.
 - Fibrosis source of truth is the clinical Ishak field from `clinical.tsv` (case-level aggregated).
 - HBV/HCV harmonisation uses `data/raw/annotations/mmc1.xlsx` consensus calls first, then fallback fields.
 - Obesity class is derived from BMI using WHO categories.
-- Default fibrosis complete-case rows require non-missing:
-  - `alcohol_status`
-  - `hbv_status`
-  - `hcv_status`
-  - `nafld_status`
-  - `obesity_class`
-  - `fibrosis_ishak_score`
-- All-phenotype rows (`master_sample_metadata_lihc_all.csv`) require non-missing:
-  - `alcohol_status`
-  - `hbv_status`
-  - `hcv_status`
-  - `nafld_status`
-  - `obesity_class`
-  - `fibrosis_ishak_score`
-- NAFLD-focused rows require non-missing:
-  - `alcohol_status`
-  - `hbv_status`
-  - `hcv_status`
-  - `nafld_status`
-  - `obesity_class`
-- HCV-focused rows require non-missing:
-  - `alcohol_status`
-  - `hbv_status`
-  - `hcv_status`
-  - `nafld_status`
-  - `obesity_class`
 
 ## Grid search
 

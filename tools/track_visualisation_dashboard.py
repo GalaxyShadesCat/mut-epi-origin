@@ -22,23 +22,23 @@ RESULTS_DIR = ASSETS_DIR / "saved_results"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.contigs import canonical_primary_list, canonicalise_contig, ContigResolver
-from scripts.genome_bins import build_bins, load_fai
-from scripts.tracks import (
+from scripts.common.contigs import canonical_primary_list, canonicalise_contig, ContigResolver
+from scripts.common.genome_bins import build_bins, load_fai
+from scripts.common.tracks import (
     mutations_to_bin_counts,
     track_counts_gauss,
     track_inv_dist_gauss,
     track_exp_decay,
     track_exp_decay_adaptive,
 )
-from scripts.covariates import (
+from scripts.common.covariates import (
     gc_fraction_per_bin,
     cpg_frequency_per_bin,
     trinuc_frequency_per_bin,
     bigwig_mean_per_bin,
 )
 from scripts.grid_search.metrics import rf_residualise
-from scripts.scores import compute_local_scores
+from scripts.common.scores import compute_local_scores
 
 TRACK_DESCRIPTIONS = {
     "counts_raw": "Raw mutation counts per bin (step track).",

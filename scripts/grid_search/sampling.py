@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pandas as pd
 
-from scripts.sample_selector import (
+from scripts.common.sample_selector import (
     COLNAMES,
     count_mutations_per_sample,
     count_mutations_per_sample_multi,

@@ -11,7 +11,7 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import Ridge
 
-from scripts.stats_utils import zscore_nan
+from scripts.common.stats_utils import zscore_nan
 
 
 def pearsonr_nan(x: np.ndarray, y: np.ndarray) -> float:

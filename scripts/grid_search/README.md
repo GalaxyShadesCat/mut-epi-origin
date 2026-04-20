@@ -204,7 +204,7 @@ Use `validate_state_scores.py` to validate inferred state scores against clinica
 3-state setup:
 
 ```bash
-python scripts/validate_state_scores.py \
+python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
   --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \
   --state-suffixes normal,ac,ah \
@@ -214,7 +214,7 @@ python scripts/validate_state_scores.py \
 2-state FOXA2 setup:
 
 ```bash
-python scripts/validate_state_scores.py \
+python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
   --state-labels normal_FOXA2_pos,abnormal_FOXA2_zero \
   --state-suffixes normal_FOXA2_pos,abnormal_FOXA2_zero \
@@ -224,7 +224,7 @@ python scripts/validate_state_scores.py \
 NAFLD-focused setup (fibrosis optional):
 
 ```bash
-python scripts/validate_state_scores.py \
+python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
   --experiment-name YOUR_EXPERIMENT \
   --metadata-path data/derived/master_metadata.csv \
   --state-labels hepatocyte_normal,hepatocyte_ac,hepatocyte_ah \

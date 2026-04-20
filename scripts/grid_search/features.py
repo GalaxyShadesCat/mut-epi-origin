@@ -8,14 +8,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from scripts.covariates import (
+from scripts.common.covariates import (
     gc_fraction_per_bin,
     cpg_frequency_per_bin,
     trinuc_frequency_per_bin,
     bigwig_mean_per_bin,
 )
-from scripts.genome_bins import build_bins
-from scripts.tracks import TRACK_REGISTRY
+from scripts.common.genome_bins import build_bins
+from scripts.common.tracks import TRACK_REGISTRY
 
 
 def build_covariate_matrix(

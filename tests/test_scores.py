@@ -1,6 +1,6 @@
 import numpy as np
 
-from scripts.scores import compute_local_scores
+from scripts.common.scores import compute_local_scores
 
 
 def test_perfect_inverse_scores_negative():

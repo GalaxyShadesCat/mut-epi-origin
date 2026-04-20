@@ -10,9 +10,9 @@ import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from scripts.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
-from scripts.io_utils import ensure_dir
-from scripts.logging_utils import setup_rich_logging
+from scripts.common.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
+from scripts.common.io_utils import ensure_dir
+from scripts.common.logging_utils import setup_rich_logging
 from scripts.grid_search.config import expand_grid_values
 from scripts.grid_search.io import _load_dnase_map_path
 from scripts.grid_search.runner import resume_experiment, run_grid_experiment, suppress_sklearn_parallel_warning

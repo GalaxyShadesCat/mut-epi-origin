@@ -14,10 +14,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 import numpy as np
 import pandas as pd
 
-from scripts.bigwig_utils import get_bigwig_chrom_lengths
-from scripts.contigs import ContigResolver
-from scripts.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
-from scripts.genome_bins import load_fai, iter_chroms
+from scripts.common.bigwig_utils import get_bigwig_chrom_lengths
+from scripts.common.contigs import ContigResolver
+from scripts.common.dnase_map import DEFAULT_MAP_PATH, DnaseCellTypeMap
+from scripts.common.genome_bins import load_fai, iter_chroms
 from scripts.grid_search.config import (
     _normalize_downsample_values,
     _prefixed_track_params,
@@ -43,8 +43,8 @@ from scripts.grid_search.sampling import (
     _select_non_overlapping_samples,
     _unique_nonempty,
 )
-from scripts.io_utils import ensure_dir, save_df, save_json
-from scripts.logging_utils import (
+from scripts.common.io_utils import ensure_dir, save_df, save_json
+from scripts.common.logging_utils import (
     log_kv,
     log_section,
     progress_line,
@@ -52,9 +52,9 @@ from scripts.logging_utils import (
     summarise_run,
     timed,
 )
-from scripts.scores import compute_local_scores
-from scripts.stats_utils import weighted_mean, zscore_nan
-from scripts.targets import dnase_mean_per_bin
+from scripts.common.scores import compute_local_scores
+from scripts.common.stats_utils import weighted_mean, zscore_nan
+from scripts.common.targets import dnase_mean_per_bin
 
 
 _SKLEARN_PARALLEL_WARNING = (

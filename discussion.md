@@ -21,7 +21,7 @@ The main goals were:
 
 A separate script was used so the original validation script stayed unchanged:
 
-- `scripts/validate_state_scores_adjusted.py`
+- `scripts/03_clinical_associations/validate_state_scores_adjusted.py`
 
 It produces adjusted outputs (new files) without replacing the existing unadjusted pipeline.
 
@@ -371,12 +371,12 @@ Environment:
 
 Script:
 
-- `scripts/validate_state_scores_adjusted.py`
+- `scripts/03_clinical_associations/validate_state_scores_adjusted.py`
 
 Example run:
 
 ```bash
-python scripts/validate_state_scores_adjusted.py \
+python scripts/03_clinical_associations/validate_state_scores_adjusted.py \
   --experiment-name lihc_foxa2_top4_nafld \
   --metadata-path data/derived/master_sample_metadata_lihc_nafld.csv \
   --state-labels foxa2_normal_pos,foxa2_abnormal_zero \
