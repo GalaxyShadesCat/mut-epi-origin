@@ -123,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--out-dir",
-        default="outputs/experiments/null_shuffle_bootstrap_foxa2_counts_raw_500k",
+        default="outputs/experiments/null_shuffle_bootstrap_foxa2_exp_decay_500k",
         help="Output directory for all bootstrap replicates.",
     )
     parser.add_argument(
@@ -138,8 +138,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--track-strategy",
-        default="counts_raw",
-        help="Track strategy to rerun (default: counts_raw).",
+        default="exp_decay",
+        help="Track strategy to rerun (default: exp_decay).",
     )
     parser.add_argument(
         "--bin-size",
@@ -249,8 +249,6 @@ def main() -> None:
             "none",
             "--track-strategies",
             args.track_strategy,
-            "--counts-raw-bins",
-            str(args.bin_size),
             "--covariate-sets",
             "gc+cpg+timing",
             "--explicit-setups-json",
@@ -258,6 +256,14 @@ def main() -> None:
             "--standardise-scope",
             "per_chrom",
         ]
+        if args.track_strategy == "counts_raw":
+            grid_cmd.extend(["--counts-raw-bins", str(args.bin_size)])
+        elif args.track_strategy == "exp_decay":
+            grid_cmd.extend(["--exp-decay-bins", str(args.bin_size)])
+        else:
+            raise ValueError(
+                f"Unsupported --track-strategy for null bootstrap: {args.track_strategy}"
+            )
         run_cmd(grid_cmd, cwd=project_root)
 
         validate_cmd = [

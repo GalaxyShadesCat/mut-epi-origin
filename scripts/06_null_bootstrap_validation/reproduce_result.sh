@@ -4,13 +4,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-source /home/lem/miniconda3/etc/profile.d/conda.sh
+if [[ -n "${CONDA_EXE:-}" ]]; then
+  CONDA_BASE="$(cd "$(dirname "${CONDA_EXE}")/.." && pwd)"
+else
+  CONDA_BASE="$(conda info --base)"
+fi
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
 conda activate mut-epi-origin
 
 RESULT_NAME="06_null_bootstrap_validation"
 
 # Reproduce null-bootstrap outputs in:
-# outputs/experiments/null_shuffle_bootstrap_foxa2_counts_raw_500k/
+# outputs/experiments/null_shuffle_bootstrap_foxa2_exp_decay_500k/
 # Null bootstrap reproducer.
 # This runs the full negative-control pipeline per replicate:
 # shuffle -> benchmark rerun -> validation -> DESeq2 -> limma -> fgsea.
@@ -28,8 +33,8 @@ python scripts/06_null_bootstrap_validation/bootstrap_shuffle_null.py \
   --timing-bw data/raw/timing/repliSeq_SknshWaveSignalRep1.bigWig \
   --metadata-path data/derived/master_metadata.csv \
   --counts-path data/raw/rna/TCGA-LIHC.star_counts.tsv \
-  --out-dir outputs/experiments/null_shuffle_bootstrap_foxa2_counts_raw_500k \
-  --track-strategy counts_raw \
+  --out-dir outputs/experiments/null_shuffle_bootstrap_foxa2_exp_decay_500k \
+  --track-strategy exp_decay \
   --bin-size 500000 \
   --scoring-system spearman_r_linear_resid \
   --state-labels foxa2_normal_pos,foxa2_abnormal_zero
