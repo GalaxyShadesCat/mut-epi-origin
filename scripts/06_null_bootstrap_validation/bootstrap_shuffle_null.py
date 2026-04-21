@@ -162,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
-    project_root = Path(__file__).resolve().parents[1]
+    project_root = Path(__file__).resolve().parents[2]
     out_dir = project_root / args.out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -173,6 +173,18 @@ def main() -> None:
     metadata_path = (project_root / args.metadata_path).resolve()
     counts_path = (project_root / args.counts_path).resolve()
     dnase_map = json.loads(args.dnase_map_json)
+
+    required_paths = {
+        "--mut-path": mut_path,
+        "--fai-path": fai_path,
+        "--fasta-path": fasta_path,
+        "--timing-bw": timing_bw,
+        "--metadata-path": metadata_path,
+        "--counts-path": counts_path,
+    }
+    for label, path in required_paths.items():
+        if not path.exists():
+            raise FileNotFoundError(f"{label} not found: {path}")
 
     state_labels = [x.strip() for x in args.state_labels.split(",") if x.strip()]
     if len(state_labels) != 2:
