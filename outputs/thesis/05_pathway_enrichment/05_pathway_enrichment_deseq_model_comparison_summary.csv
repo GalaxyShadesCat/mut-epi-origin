@@ -1,1 +1,16 @@
-../../experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step7_fgsea_deseq_grid/grid_summary.csv
+input,metric,ok,genes_ranked,pathways_tested,significant_pathways_fdr_0.05,best_pathway,best_pathway_padj,stderr_head
+step1_continuous,stat,True,17559,50,29,HALLMARK_OXIDATIVE_PHOSPHORYLATION,5.01e-25,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step1_continuous,sign_logfc_neglog10p,True,17559,50,23,HALLMARK_OXIDATIVE_PHOSPHORYLATION,9.97e-20,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step1_continuous,logfc_times_neglog10p,True,17559,50,2,HALLMARK_OXIDATIVE_PHOSPHORYLATION,0.01813,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step3_continuous_sva,stat,True,17559,50,2,HALLMARK_TNFA_SIGNALING_VIA_NFKB,0.001448,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step3_continuous_sva,sign_logfc_neglog10p,True,17559,50,1,HALLMARK_TNFA_SIGNALING_VIA_NFKB,0.02261,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step3_continuous_sva,logfc_times_neglog10p,True,17559,50,0,HALLMARK_MYOGENESIS,1,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step4_hallmark_universe,stat,True,4137,50,30,HALLMARK_OXIDATIVE_PHOSPHORYLATION,6.386e-25,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step4_hallmark_universe,sign_logfc_neglog10p,True,4137,50,24,HALLMARK_OXIDATIVE_PHOSPHORYLATION,6.883e-22,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step4_hallmark_universe,logfc_times_neglog10p,True,4137,50,2,HALLMARK_TNFA_SIGNALING_VIA_NFKB,0.01309,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step6_limma_gene_pool,stat,True,17559,50,25,HALLMARK_OXIDATIVE_PHOSPHORYLATION,1.734e-35,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step6_limma_gene_pool,sign_logfc_neglog10p,True,17559,50,18,HALLMARK_OXIDATIVE_PHOSPHORYLATION,1.109e-28,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+step6_limma_gene_pool,logfc_times_neglog10p,True,17559,50,1,HALLMARK_OXIDATIVE_PHOSPHORYLATION,3.182e-05,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+deseq2_binary_main,stat,True,8944,50,27,HALLMARK_OXIDATIVE_PHOSPHORYLATION,5.349e-30,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+deseq2_binary_main,sign_logfc_neglog10p,True,8944,50,25,HALLMARK_OXIDATIVE_PHOSPHORYLATION,1.367e-25,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
+deseq2_binary_main,logfc_times_neglog10p,True,8944,50,1,HALLMARK_OXIDATIVE_PHOSPHORYLATION,2.681e-06,"[""'select()' returned 1:many mapping between keys and columns"", 'Wrote:']"
