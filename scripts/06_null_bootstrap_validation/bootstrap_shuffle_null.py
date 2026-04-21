@@ -72,6 +72,27 @@ def maybe_float(value: str | None) -> float:
         return float("nan")
 
 
+def has_bed_header(path: Path) -> bool:
+    """Return True when the first non-empty line looks like a header row."""
+    with path.open("r", encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith("#"):
+                return True
+            fields = line.split("\t")
+            if len(fields) < 3:
+                return True
+            try:
+                int(fields[1])
+                int(fields[2])
+                return False
+            except ValueError:
+                return True
+    raise ValueError(f"Mutation file is empty: {path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
@@ -199,26 +220,39 @@ def main() -> None:
         rep_dir.mkdir(parents=True, exist_ok=True)
 
         shuffled_path = rep_dir / "mutations_shuffled.tsv"
+        shuffle_input_path = mut_path
         experiment_dir = rep_dir / "experiment"
         deseq_dir = rep_dir / "de_deseq"
         limma_dir = rep_dir / "de_limma"
         fgsea_dir = rep_dir / "fgsea"
         fgsea_dir.mkdir(parents=True, exist_ok=True)
 
+        header_line: str | None = None
+        if has_bed_header(mut_path):
+            with mut_path.open("r", encoding="utf-8") as handle:
+                header_line = handle.readline().rstrip("\n")
+                no_header_path = rep_dir / "mutations_input_no_header.tsv"
+                with no_header_path.open("w", encoding="utf-8") as out_handle:
+                    for line in handle:
+                        out_handle.write(line)
+            shuffle_input_path = no_header_path
+
         shuffle_cmd = [
             "bedtools",
             "shuffle",
             "-i",
-            str(mut_path),
+            str(shuffle_input_path),
             "-g",
             str(fai_path),
             "-chrom",
             "-seed",
             str(seed),
-            "-header",
         ]
         with shuffled_path.open("w", encoding="utf-8") as handle:
             subprocess.run(shuffle_cmd, cwd=str(project_root), check=True, stdout=handle)
+        if header_line is not None:
+            shuffled_body = shuffled_path.read_text(encoding="utf-8")
+            shuffled_path.write_text(f"{header_line}\n{shuffled_body}", encoding="utf-8")
 
         explicit_setup = json.dumps(
             [
