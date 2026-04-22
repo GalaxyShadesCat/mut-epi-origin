@@ -198,10 +198,6 @@ derive_labels_from_results <- function(results_dt, track_strategy_value, bin_siz
     stop("Missing required columns in results.csv: ", paste(missing_required, collapse = ", "))
   }
 
-  if (!("counts_raw_bin" %in% names(results_dt))) {
-    stop("results.csv must contain counts_raw_bin for this configuration filter.")
-  }
-
   score_cols <- paste0(scoring_system, "_", state_labels, "_mean_weighted")
   missing_scores <- setdiff(score_cols, names(results_dt))
   if (length(missing_scores) > 0) {
@@ -212,10 +208,28 @@ derive_labels_from_results <- function(results_dt, track_strategy_value, bin_siz
   dt[, sample_raw := vapply(selected_sample_ids, first_sample_from_selected, character(1))]
   dt <- dt[!is.na(sample_raw) & sample_raw != ""]
 
-  dt <- dt[
-    track_strategy == track_strategy_value &
-      as.numeric(counts_raw_bin) == as.numeric(bin_size)
-  ]
+  strategy_bin_col <- paste0(track_strategy_value, "_bin")
+  has_strategy_bin_col <- strategy_bin_col %in% names(dt)
+  has_generic_bin_col <- "bin_size" %in% names(dt)
+
+  if (has_strategy_bin_col) {
+    dt <- dt[
+      track_strategy == track_strategy_value &
+        as.numeric(get(strategy_bin_col)) == as.numeric(bin_size)
+    ]
+  } else if (has_generic_bin_col) {
+    dt <- dt[
+      track_strategy == track_strategy_value &
+        as.numeric(get("bin_size")) == as.numeric(bin_size)
+    ]
+  } else {
+    dt <- dt[track_strategy == track_strategy_value]
+    warning(
+      "No strategy-specific bin column found (expected '",
+      strategy_bin_col,
+      "'). Falling back to track_strategy-only filtering."
+    )
+  }
 
   if (nrow(dt) == 0) {
     stop("No rows remain after filtering by track strategy and bin size.")
