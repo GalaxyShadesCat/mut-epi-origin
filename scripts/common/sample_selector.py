@@ -66,6 +66,23 @@ def _normalise_tumour_filter(tumour_filter: Optional[Sequence[str]]) -> Set[str]
     }
 
 
+HEADER_LIKE_SAMPLE_IDS = {
+    "sample",
+    "sample_id",
+    "sampleid",
+    "tumor_sample_barcode",
+    "tumour_sample_barcode",
+    "tumour_sample_submitter_id",
+    "tumor_sample_submitter_id",
+}
+
+
+def _filter_header_like_sample_ids(values: pd.Series) -> pd.Series:
+    """Drop header-like token values that should never be treated as sample IDs."""
+    normalised = values.str.strip().str.lower()
+    return values.loc[~normalised.isin(HEADER_LIKE_SAMPLE_IDS)]
+
+
 def _apply_tumour_filter(
         df: pd.DataFrame, tumour_filter: Optional[Sequence[str]]
 ) -> pd.DataFrame:
@@ -271,6 +288,7 @@ def infer_sample_order(
     ):
         s = raw_chunk.iloc[:, 0].fillna("").astype(str).str.strip()
         s = s[s != ""]
+        s = _filter_header_like_sample_ids(s)
         samples.update(s.tolist())
 
     ordered = sorted(samples)
@@ -383,6 +401,8 @@ def count_mutations_per_sample(
 
         chunk = _apply_tumour_filter(chunk, tumour_filter)
         chunk = chunk.loc[chunk["Sample_ID"] != ""]
+        valid_sample_ids = _filter_header_like_sample_ids(chunk["Sample_ID"])
+        chunk = chunk.loc[valid_sample_ids.index]
         if chunk.empty:
             continue
 
