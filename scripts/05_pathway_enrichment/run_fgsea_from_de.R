@@ -8,11 +8,11 @@
 #'
 #' Example:
 #' Rscript scripts/05_pathway_enrichment/run_fgsea_from_de.R \
-#'   --de-results outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step6_deseq2_limma_gene_pool_results.csv \
+#'   --de-results outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step6_deseq2_limma_gene_pool_results.csv \
 #'   --rank-metric logfc_times_neglog10p \
 #'   --gene-sets-source msigdb \
 #'   --msigdb-collection H \
-#'   --out-prefix outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step7_fgsea_from_deseq2_limma_pool
+#'   --out-prefix outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_from_deseq2_limma_pool
 
 suppressPackageStartupMessages({
   library(data.table)

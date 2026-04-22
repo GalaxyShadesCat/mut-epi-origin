@@ -282,7 +282,7 @@ def main() -> None:
         results_path = experiment_dir / "results.csv"
         deseq_cmd = [
             "Rscript",
-            "scripts/04_differential_expression/run_differential_expression_by_inferred_labels.R",
+            "scripts/03_differential_expression/run_differential_expression_by_inferred_labels.R",
             "--counts-path",
             str(counts_path),
             "--results-path",
@@ -312,7 +312,7 @@ def main() -> None:
 
         limma_cmd = [
             "Rscript",
-            "scripts/04_differential_expression/run_limma_by_inferred_labels.R",
+            "scripts/03_differential_expression/run_limma_by_inferred_labels.R",
             "--counts-path",
             str(counts_path),
             "--labels-path",

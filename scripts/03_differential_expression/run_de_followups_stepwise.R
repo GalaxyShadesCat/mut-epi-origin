@@ -61,10 +61,35 @@ first_sample_from_selected <- function(x) {
 
 derive_sample_scores <- function(results_path) {
   dt <- fread(results_path)
-  dt <- dt[
-    track_strategy == "counts_raw" &
-      as.numeric(counts_raw_bin) == 500000
-  ]
+  track_strategy_value <- "exp_decay"
+  bin_size_value <- 500000
+  strategy_bin_col <- paste0(track_strategy_value, "_bin")
+  has_strategy_bin_col <- strategy_bin_col %in% names(dt)
+  has_generic_bin_col <- "bin_size" %in% names(dt)
+
+  if (has_strategy_bin_col) {
+    dt <- dt[
+      track_strategy == track_strategy_value &
+        as.numeric(get(strategy_bin_col)) == as.numeric(bin_size_value)
+    ]
+  } else if (has_generic_bin_col) {
+    dt <- dt[
+      track_strategy == track_strategy_value &
+        as.numeric(get("bin_size")) == as.numeric(bin_size_value)
+    ]
+  } else {
+    dt <- dt[track_strategy == track_strategy_value]
+    warning(
+      "No strategy-specific bin column found (expected '",
+      strategy_bin_col,
+      "'). Falling back to track_strategy-only filtering."
+    )
+  }
+
+  if (nrow(dt) == 0) {
+    stop("No rows remain after filtering by track strategy and bin size.")
+  }
+
   dt[, sample_raw := vapply(selected_sample_ids, first_sample_from_selected, character(1))]
   dt <- dt[!is.na(sample_raw) & sample_raw != ""]
 
@@ -276,11 +301,11 @@ run_label_quality <- function(counts, cd) {
 }
 
 main <- function() {
-  out_dir <- "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise"
+  out_dir <- "outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise"
   dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
   counts_path <- "data/raw/rna/TCGA-LIHC.star_counts.tsv"
-  results_path <- "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/results.csv"
+  results_path <- "outputs/experiments/lihc_foxa2_all_samples/results.csv"
   metadata_path <- "data/derived/master_metadata.csv"
 
   sample_scores <- derive_sample_scores(results_path)

@@ -16,7 +16,7 @@ usage <- function() {
   cat(
     paste(
       "Usage:",
-      "Rscript scripts/04_differential_expression/run_limma_by_inferred_labels.R \\",
+      "Rscript scripts/03_differential_expression/run_limma_by_inferred_labels.R \\",
       "  --counts-path <path> \\",
       "  --labels-path <path> \\",
       "  [--output-dir <path>] \\",

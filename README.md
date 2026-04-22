@@ -174,7 +174,7 @@ python scripts/01_pan_celltype_benchmark/validate_state_scores.py \
 
 ### Step 7: Run gene-level differential mutation analysis from inferred labels
 
-Script: `scripts/03_clinical_associations/run_differential_mutation_by_inferred_labels.py`
+Script: `scripts/02_hepatocyte_clinical_associations/run_differential_mutation_by_inferred_labels.py`
 
 This step tests gene-level mutation frequency differences between two inferred
 label groups using Fisher's exact test. It is differential mutation analysis,
@@ -183,7 +183,7 @@ not RNA-seq differential expression.
 Example command:
 
 ```bash
-python scripts/03_clinical_associations/run_differential_mutation_by_inferred_labels.py \
+python scripts/02_hepatocyte_clinical_associations/run_differential_mutation_by_inferred_labels.py \
   --mutation-path data/raw/mutations/lihc_snv_mutation_table.tsv \
   --delim tab \
   --output-dir outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/dm_counts_raw_500k_spearman_r_linear_resid_from_lihc_snv_table

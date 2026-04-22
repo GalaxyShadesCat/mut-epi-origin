@@ -4,8 +4,18 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-source /home/lem/miniconda3/etc/profile.d/conda.sh
-conda activate mut-epi-origin
+if [[ -n "${CONDA_EXE:-}" ]]; then
+  CONDA_BASE="$(cd "$(dirname "${CONDA_EXE}")/.." && pwd)"
+else
+  CONDA_BASE="$(conda info --base)"
+fi
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
+# Conda deactivate/activate hooks may read unset backup vars under `set -u`.
+set +u
+if [[ "${CONDA_DEFAULT_ENV:-}" != "mut-epi-origin" ]]; then
+  conda activate mut-epi-origin
+fi
+set -u
 
 RESULT_NAME="01_pan_celltype_benchmark"
 

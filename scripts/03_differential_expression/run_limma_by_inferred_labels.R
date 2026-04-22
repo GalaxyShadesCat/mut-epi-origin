@@ -16,7 +16,7 @@ usage <- function() {
   cat(
     paste(
       "Usage:",
-      "Rscript scripts/04_differential_expression/run_limma_by_inferred_labels.R \\",
+      "Rscript scripts/03_differential_expression/run_limma_by_inferred_labels.R \\",
       "  --counts-path <path> \\",
       "  --labels-path <path> \\",
       "  [--output-dir <path>] \\",
@@ -34,7 +34,7 @@ usage <- function() {
 
 parse_args <- function(argv) {
   defaults <- list(
-    "output-dir" = "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_limma_counts_raw_500k_spearman_r_linear_resid",
+    "output-dir" = "outputs/experiments/lihc_foxa2_all_samples/de_limma_exp_decay_500k_spearman_r_linear_resid",
     "id-prefix-length" = "15",
     "contrast-case" = "foxa2_abnormal_zero",
     "contrast-control" = "foxa2_normal_pos",

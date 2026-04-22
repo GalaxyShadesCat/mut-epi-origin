@@ -10,7 +10,12 @@ else
   CONDA_BASE="$(conda info --base)"
 fi
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
-conda activate mut-epi-origin
+# Conda deactivate/activate hooks may read unset backup vars under `set -u`.
+set +u
+if [[ "${CONDA_DEFAULT_ENV:-}" != "mut-epi-origin" ]]; then
+  conda activate mut-epi-origin
+fi
+set -u
 
 RESULT_NAME="06_null_bootstrap_validation"
 
@@ -37,6 +42,8 @@ python scripts/06_null_bootstrap_validation/bootstrap_shuffle_null.py \
   --track-strategy exp_decay \
   --bin-size 500000 \
   --scoring-system spearman_r_linear_resid \
-  --state-labels foxa2_normal_pos,foxa2_abnormal_zero
+  --state-labels foxa2_normal_pos,foxa2_abnormal_zero \
+  --adjust-for-mutation-burden \
+  --mutation-burden-col mutations_post_downsample
 
 echo "Done: ${RESULT_NAME} regenerated."

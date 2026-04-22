@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path(
             "outputs/experiments/"
-            "lihc_foxa2_top4_all_samples_per_sample_merged/"
+            "lihc_foxa2_clinical_complete/"
             "validation_score_rankings.csv"
         ),
         help="Path to validation_score_rankings.csv.",
@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path(
             "outputs/experiments/"
-            "lihc_foxa2_top4_all_samples_per_sample_merged/"
+            "lihc_foxa2_clinical_complete/"
             "dm_counts_raw_500k_spearman_r_linear_resid"
         ),
         help="Output directory.",

@@ -1,0 +1,3 @@
+pathway,pathway_label,n_hits_in_ranked_list,enrichment_score,peak_rank_position
+HALLMARK_E2F_TARGETS,E2F targets,199,-0.5268206438731884,12662
+HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION,EMT,199,0.5875676832850509,3088

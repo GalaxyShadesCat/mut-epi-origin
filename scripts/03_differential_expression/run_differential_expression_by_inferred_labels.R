@@ -32,14 +32,14 @@ usage <- function() {
   cat(
     paste(
       "Usage:",
-      "Rscript scripts/04_differential_expression/run_differential_expression_by_inferred_labels.R \\",
+      "Rscript scripts/03_differential_expression/run_differential_expression_by_inferred_labels.R \\",
       "  --counts-path <path> \\",
       "  [--results-path <path>] \\",
       "  [--metadata-path <path>] \\",
       "  [--metadata-sample-col tumour_sample_submitter_id] \\",
       "  [--covariates age_at_diagnosis,gender,ajcc_pathologic_stage] \\",
       "  [--output-dir <path>] \\",
-      "  [--track-strategy counts_raw] \\",
+      "  [--track-strategy exp_decay] \\",
       "  [--bin-size 500000] \\",
       "  [--scoring-system spearman_r_linear_resid] \\",
       "  [--state-labels foxa2_normal_pos,foxa2_abnormal_zero] \\",
@@ -68,12 +68,12 @@ usage <- function() {
 
 parse_args <- function(argv) {
   defaults <- list(
-    "results-path" = "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/results.csv",
+    "results-path" = "outputs/experiments/lihc_foxa2_all_samples/results.csv",
     "metadata-path" = "data/derived/master_metadata.csv",
     "metadata-sample-col" = "tumour_sample_submitter_id",
     "covariates" = "age_at_diagnosis,gender,ajcc_pathologic_stage",
-    "output-dir" = "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_counts_raw_500k_spearman_r_linear_resid",
-    "track-strategy" = "counts_raw",
+    "output-dir" = "outputs/experiments/lihc_foxa2_all_samples/de_exp_decay_500k_spearman_r_linear_resid",
+    "track-strategy" = "exp_decay",
     "bin-size" = "500000",
     "scoring-system" = "spearman_r_linear_resid",
     "state-labels" = "foxa2_normal_pos,foxa2_abnormal_zero",

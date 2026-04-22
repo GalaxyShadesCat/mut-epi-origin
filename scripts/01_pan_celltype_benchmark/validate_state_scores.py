@@ -347,6 +347,19 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allow aggregated rows in results.csv (these rows are skipped).",
     )
+    parser.add_argument(
+        "--adjust-for-mutation-burden",
+        action="store_true",
+        help=(
+            "Adjust state-score features for mutation burden using per-config "
+            "linear residualisation before association tests."
+        ),
+    )
+    parser.add_argument(
+        "--mutation-burden-col",
+        default="mutations_post_downsample",
+        help="Column in results.csv to use as mutation burden when adjustment is enabled.",
+    )
     return parser.parse_args()
 
 
@@ -514,6 +527,7 @@ def load_sample_level_results(
     state_config: Sequence[Tuple[str, str]],
     invert_scores: bool,
     allow_aggregated_results: bool,
+    extra_numeric_cols: Sequence[str] | None = None,
 ) -> pd.DataFrame:
     results_path = experiment_dir / "results.csv"
     if not results_path.exists():
@@ -564,6 +578,12 @@ def load_sample_level_results(
     if usable.empty:
         raise ValueError("No valid config_id values were available in usable rows.")
 
+    requested_extra_cols = list(extra_numeric_cols or [])
+    available_extra_cols = [col for col in requested_extra_cols if col in usable.columns]
+    missing_extra_cols = [col for col in requested_extra_cols if col not in usable.columns]
+    if missing_extra_cols:
+        log("Skipping missing results columns: " + ", ".join(missing_extra_cols))
+
     score_frames: List[pd.DataFrame] = []
     for scoring_system in scoring_systems:
         template = SCORING_COLUMN_TEMPLATES[scoring_system]
@@ -588,7 +608,7 @@ def load_sample_level_results(
                 + ", ".join(missing)
             )
 
-        cols = ["sample", "config_id"] + list(col_map.values())
+        cols = ["sample", "config_id"] + list(col_map.values()) + available_extra_cols
         subset = usable[cols].rename(columns={v: k for k, v in col_map.items()}).copy()
 
         agg_map: Dict[str, Tuple[str, str]] = {}
@@ -597,6 +617,9 @@ def load_sample_level_results(
             if invert_scores:
                 subset[score_col] = -1.0 * subset[score_col]
             agg_map[score_col] = (score_col, "mean")
+        for extra_col in available_extra_cols:
+            subset[extra_col] = pd.to_numeric(subset[extra_col], errors="coerce")
+            agg_map[extra_col] = (extra_col, "mean")
 
         subset = subset.groupby(["sample", "config_id"], as_index=False).agg(**agg_map).copy()
         subset["scoring_system"] = scoring_system
@@ -645,11 +668,33 @@ def load_metadata(
         raise ValueError(f"Missing required metadata sample column: {sample_col}")
 
     requested = [col for col in requested_metadata_columns if col != sample_col]
+    alias_sources_to_targets: Dict[str, str] = {
+        "alcohol": "alcohol_status",
+        "hbv": "hbv_status",
+        "hcv": "hcv_status",
+        "nafld": "nafld_status",
+        "ishak_fibrosis_score": "fibrosis_ishak_score",
+        "fibrosis_ishak_ordinal": "fibrosis_ishak_score",
+    }
+
     keep_cols = [sample_col] + [col for col in requested if col in metadata.columns]
+    for source_col, target_col in alias_sources_to_targets.items():
+        if (
+            target_col in requested
+            and target_col not in metadata.columns
+            and source_col in metadata.columns
+            and source_col not in keep_cols
+        ):
+            keep_cols.append(source_col)
+
     out = metadata[keep_cols].copy()
     out["sample"] = out[sample_col].astype(str).str.strip()
     out = out[out["sample"] != ""].copy()
     out.drop(columns=[sample_col], inplace=True)
+
+    for source_col, target_col in alias_sources_to_targets.items():
+        if target_col not in out.columns and source_col in out.columns:
+            out[target_col] = out[source_col]
 
     for col in ["alcohol_status", "hbv_status", "hcv_status", "nafld_status", "obesity_class", "fibrosis_present"]:
         if col in out.columns:
@@ -816,6 +861,49 @@ def run_correlations(
                 )
 
     return pd.DataFrame(rows, columns=CORRELATION_COLUMNS)
+
+
+def adjust_scores_for_mutation_burden(
+    score_df: pd.DataFrame,
+    score_features: Sequence[str],
+    mutation_burden_col: str,
+) -> Tuple[pd.DataFrame, List[str]]:
+    adjusted = score_df.copy()
+    if mutation_burden_col not in adjusted.columns:
+        raise ValueError(
+            f"Mutation burden column not available for adjustment: {mutation_burden_col}"
+        )
+
+    adjusted[mutation_burden_col] = pd.to_numeric(
+        adjusted[mutation_burden_col], errors="coerce"
+    )
+    adjusted_features: List[str] = [
+        f"{feature}_adj_mutburden" for feature in score_features
+    ]
+    for feature_adj in adjusted_features:
+        adjusted[feature_adj] = np.nan
+
+    grouped = adjusted.groupby(["config_id", "scoring_system"], dropna=False)
+    for _, sub in grouped:
+        idx = sub.index
+        mb = pd.to_numeric(sub[mutation_burden_col], errors="coerce")
+        mb = mb.where(mb >= 0.0)
+
+        for score_feature, score_feature_adj in zip(score_features, adjusted_features):
+            y = pd.to_numeric(sub[score_feature], errors="coerce")
+            valid_mask = y.notna() & mb.notna()
+            if int(valid_mask.sum()) < 3:
+                continue
+
+            x = np.log10(mb.loc[valid_mask].to_numpy(dtype=float) + 1.0)
+            y_valid = y.loc[valid_mask].to_numpy(dtype=float)
+            design = np.column_stack([np.ones(len(x)), x])
+            beta, *_ = np.linalg.lstsq(design, y_valid, rcond=None)
+            y_hat = design @ beta
+            y_adj = y_valid - y_hat + float(np.mean(y_valid))
+            adjusted.loc[idx[valid_mask], score_feature_adj] = y_adj
+
+    return adjusted, adjusted_features
 
 
 def add_score_contrasts(df: pd.DataFrame, state_config: Sequence[Tuple[str, str]]) -> Tuple[pd.DataFrame, List[str]]:
@@ -1485,14 +1573,24 @@ def main() -> None:
     log(f"Scoring systems: {', '.join(scoring_systems)}")
     log(f"States: {', '.join(label for label, _ in state_config)}")
     log(f"Invert scores: {invert_scores}")
+    log(f"Adjust for mutation burden: {args.adjust_for_mutation_burden}")
 
+    extra_results_cols: List[str] = []
+    if args.adjust_for_mutation_burden:
+        extra_results_cols.append(args.mutation_burden_col)
     sample_scores = load_sample_level_results(
         experiment_dir=experiment_dir,
         scoring_systems=scoring_systems,
         state_config=state_config,
         invert_scores=invert_scores,
         allow_aggregated_results=args.allow_aggregated_results,
+        extra_numeric_cols=extra_results_cols,
     )
+    if args.adjust_for_mutation_burden and args.mutation_burden_col not in sample_scores.columns:
+        raise ValueError(
+            "Mutation burden adjustment was requested but the column is not available in "
+            f"results.csv: {args.mutation_burden_col}"
+        )
 
     metadata = load_metadata(
         metadata_path=Path(args.metadata_path),
@@ -1537,6 +1635,34 @@ def main() -> None:
     log("Running correlation tests...")
     correlations = run_correlations(merged, state_score_cols, correlation_vars)
     log(f"Completed correlation tests: {len(correlations)} rows")
+
+    group_tests_mutation_burden_adjusted = pd.DataFrame(columns=GROUP_TEST_COLUMNS)
+    correlations_mutation_burden_adjusted = pd.DataFrame(columns=CORRELATION_COLUMNS)
+    if args.adjust_for_mutation_burden:
+        log("Adjusting state scores for mutation burden...")
+        merged_adjusted, adjusted_score_cols = adjust_scores_for_mutation_burden(
+            merged,
+            score_features=state_score_cols,
+            mutation_burden_col=args.mutation_burden_col,
+        )
+
+        log("Running mutation-burden-adjusted group comparison tests...")
+        group_tests_mutation_burden_adjusted = run_group_tests(
+            merged_adjusted, adjusted_score_cols, group_test_vars
+        )
+        log(
+            "Completed mutation-burden-adjusted group comparison tests: "
+            f"{len(group_tests_mutation_burden_adjusted)} rows"
+        )
+
+        log("Running mutation-burden-adjusted correlation tests...")
+        correlations_mutation_burden_adjusted = run_correlations(
+            merged_adjusted, adjusted_score_cols, correlation_vars
+        )
+        log(
+            "Completed mutation-burden-adjusted correlation tests: "
+            f"{len(correlations_mutation_burden_adjusted)} rows"
+        )
 
     log("Running predictive validation models...")
     model_summary, model_predictions, feature_importance = run_predictive_models(
@@ -1611,6 +1737,17 @@ def main() -> None:
 
     write_csv(group_tests, experiment_dir / "validation_group_tests.csv", GROUP_TEST_COLUMNS)
     write_csv(correlations, experiment_dir / "validation_correlations.csv", CORRELATION_COLUMNS)
+    if args.adjust_for_mutation_burden:
+        write_csv(
+            group_tests_mutation_burden_adjusted,
+            experiment_dir / "validation_group_tests_mutation_burden_adjusted.csv",
+            GROUP_TEST_COLUMNS,
+        )
+        write_csv(
+            correlations_mutation_burden_adjusted,
+            experiment_dir / "validation_correlations_mutation_burden_adjusted.csv",
+            CORRELATION_COLUMNS,
+        )
     write_csv(model_summary, experiment_dir / "validation_model_summary.csv", MODEL_SUMMARY_COLUMNS)
     write_csv(model_predictions, experiment_dir / "validation_model_predictions.csv", MODEL_PREDICTION_COLUMNS)
     write_csv(feature_importance, experiment_dir / "validation_feature_importance.csv", FEATURE_IMPORTANCE_COLUMNS)
@@ -1629,6 +1766,15 @@ def main() -> None:
     log(f"- Group tests run: {len(group_tests)}")
     log(f"- Score contrast tests run: {len(score_contrast_tests)}")
     log(f"- Correlations run: {len(correlations)}")
+    if args.adjust_for_mutation_burden:
+        log(
+            "- Mutation-burden-adjusted group tests run: "
+            f"{len(group_tests_mutation_burden_adjusted)}"
+        )
+        log(
+            "- Mutation-burden-adjusted correlations run: "
+            f"{len(correlations_mutation_burden_adjusted)}"
+        )
     log(f"- Label association tests run: {len(label_assoc_all)}")
     log(f"- Confident-only label association tests run: {len(label_assoc_confident)}")
     log(f"- One-vs-rest label tests run: {len(label_ovr)}")

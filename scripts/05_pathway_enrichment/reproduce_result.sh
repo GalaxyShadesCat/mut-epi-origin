@@ -4,27 +4,37 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${REPO_ROOT}"
 
-source /home/lem/miniconda3/etc/profile.d/conda.sh
-conda activate mut-epi-origin
+if [[ -n "${CONDA_EXE:-}" ]]; then
+  CONDA_BASE="$(cd "$(dirname "${CONDA_EXE}")/.." && pwd)"
+else
+  CONDA_BASE="$(conda info --base)"
+fi
+source "${CONDA_BASE}/etc/profile.d/conda.sh"
+# Conda deactivate/activate hooks may read unset backup vars under `set -u`.
+set +u
+if [[ "${CONDA_DEFAULT_ENV:-}" != "mut-epi-origin" ]]; then
+  conda activate mut-epi-origin
+fi
+set -u
 
 RESULT_NAME="05_pathway_enrichment"
 
 # Reproduce thesis-linked pathway outputs under:
 # outputs/thesis/05_pathway_enrichment/
-OUT_DIR="outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step7_fgsea_deseq_grid"
-FIG_DIR="outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/figures_fgsea"
+OUT_DIR="outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_deseq_grid"
+FIG_DIR="outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/figures_fgsea"
 mkdir -p "${OUT_DIR}" "${FIG_DIR}"
 
 # Ensure DE inputs exist.
-bash scripts/04_differential_expression/reproduce_result.sh
+bash scripts/03_differential_expression/reproduce_result.sh
 
 # Build fgsea grid across model variants and rank metrics.
 for spec in \
-  "step1_continuous|outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step1_continuous_deseq_results.csv" \
-  "step3_continuous_sva|outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step3_continuous_deseq_with_sva_results.csv" \
-  "step4_hallmark_universe|outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step4_continuous_deseq_hallmark_universe_results.csv" \
-  "step6_limma_gene_pool|outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step6_deseq2_limma_gene_pool_results.csv" \
-  "deseq2_binary_main|outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_counts_raw_500k_spearman_r_linear_resid/differential_expression_results_all.csv"
+  "step1_continuous|outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step1_continuous_deseq_results.csv" \
+  "step3_continuous_sva|outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step3_continuous_deseq_with_sva_results.csv" \
+  "step4_hallmark_universe|outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step4_continuous_deseq_hallmark_universe_results.csv" \
+  "step6_limma_gene_pool|outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step6_deseq2_limma_gene_pool_results.csv" \
+  "deseq2_binary_main|outputs/experiments/lihc_foxa2_all_samples/de_exp_decay_500k_spearman_r_linear_resid/differential_expression_results_all.csv"
 do
   name="${spec%%|*}"
   de_path="${spec##*|}"
@@ -44,7 +54,7 @@ python - <<'PY'
 from pathlib import Path
 import pandas as pd
 
-out_dir = Path("outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step7_fgsea_deseq_grid")
+out_dir = Path("outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_deseq_grid")
 rows = []
 for summary in sorted(out_dir.glob("*_fgsea_summary.txt")):
     stem = summary.name.replace("_fgsea_summary.txt", "")
@@ -78,8 +88,8 @@ suppressPackageStartupMessages({
   library(msigdbr)
   library(ggplot2)
 })
-rank_path <- "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step7_fgsea_deseq_grid/step1_continuous__stat_ranked_genes.csv"
-fig_dir <- "outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/figures_fgsea"
+rank_path <- "outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_deseq_grid/step1_continuous__stat_ranked_genes.csv"
+fig_dir <- "outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/figures_fgsea"
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 rk <- fread(rank_path)
