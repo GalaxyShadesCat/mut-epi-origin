@@ -24,9 +24,6 @@ conda activate mut-epi-origin
 streamlit run tools/results_app.py
 ```
 
-The app reads from `outputs/thesis` and does not depend on
-`outputs/experiments`.
-
 ## Conda environment
 
 Create the environment:
