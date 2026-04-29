@@ -4,10 +4,8 @@ This directory contains external annotation resources used to enrich LIHC metada
 
 ## Source publications and portals
 
-- Cell paper (LIHC cohort context and supplementary resources):  
-  https://www.cell.com/cms/10.1016/j.cell.2017.05.046/
-- UCSC Xena clinical matrix dataset page:  
-  https://xenabrowser.net/datapages/?dataset=TCGA.LIHC.sampleMap%2FLIHC_clinicalMatrix&host=https%3A%2F%2Ftcga.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443
+- [Cell paper (LIHC cohort context and supplementary resources)](https://www.cell.com/cms/10.1016/j.cell.2017.05.046/)
+- [UCSC Xena clinical matrix dataset](https://xenabrowser.net/datapages/?dataset=TCGA.LIHC.sampleMap%2FLIHC_clinicalMatrix&host=https%3A%2F%2Ftcga.xenahubs.net&removeHub=https%3A%2F%2Fxena.treehouse.gi.ucsc.edu%3A443)
 
 ## Files used
 

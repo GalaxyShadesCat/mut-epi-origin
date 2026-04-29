@@ -23,9 +23,6 @@ Each result section provides one executable bash script named
 - `scripts/04_differential_expression/reproduce_results.sh`
 - `scripts/05_null_bootstrap_validation/reproduce_results.sh`
 
-Pathway enrichment is reproduced as part of
-`scripts/04_differential_expression/reproduce_results.sh`.
-
 Run from repo root, for example:
 
 ```bash

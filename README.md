@@ -1,3 +1,17 @@
+## Results app
+
+Use the unified Streamlit results app to inspect the thesis figures, supporting
+tables, and interactive track visualisation. This is the only maintained app
+entrypoint for result exploration.
+
+```bash
+conda activate mut-epi-origin
+streamlit run tools/results_app.py
+```
+
+The app reads from `outputs/thesis` and does not depend on
+`outputs/experiments`.
+
 ## Conda environment
 
 Create the environment:
@@ -144,23 +158,3 @@ For the grid-search runner details, see [`scripts/grid_search/README.md`](script
 For a full, practical guide to the mutation-vs-accessibility grid search runner (inputs, outputs, configuration modes, explicit setups, and resume workflow), see:
 
 - [`scripts/grid_search/README.md`](scripts/grid_search/README.md)
-
-## Streamlit apps
-
-Track visualisation:
-
-```bash
-streamlit run tools/track_visualisation_dashboard.py
-```
-
-Results dashboard:
-
-```bash
-streamlit run tools/results_dashboard/run.py
-```
-
-State validation dashboard:
-
-```bash
-streamlit run tools/state_validation_dashboard.py
-```

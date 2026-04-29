@@ -1,0 +1,11 @@
+sample_id,selected_tumour_types,correct_celltypes,default_prediction,default_is_correct,default_score_gap,mutations_post_downsample
+LP6005690-DNA_C03,ESAD,eso_epi,eso_epi,True,0.044625625126852,32543
+LP6005690-DNA_B02,ESAD,eso_epi,eso_epi,True,0.0418062762456941,61265
+2017_AML_07_T,LAML,myel_prog,neuro_stem,False,0.0300875317351574,6190
+2017_AML_03_T,LAML,myel_prog,neuro_stem,False,0.0186599327415845,7673
+LMS6T1,LMS,smc,astro_hippo,False,0.0079133931483359,3755
+EXTERN-MELA-20140924-095,MELA,mela,mela,True,0.177178332562611,793951
+EXTERN-MELA-20140505-038,MELA,mela,mela,True,0.1626072571389457,403461
+TNKTL3,NKTL,nkc,nkc,True,0.0004583362841164,10398
+TCGA-EE-A3J5,SKCM,mela,mela,True,0.1715700420817038,345037
+TCGA-ER-A19D-06A-11D-A197-08,SKCM,mela,smc,False,0.0220918745946286,654
