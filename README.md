@@ -1,3 +1,19 @@
+# MUT-EPI-ORIGIN
+
+## Introduction
+
+This repository presents a mutation-to-chromatin matching framework for studying
+origin-like molecular states in hepatocellular carcinoma. Passenger mutation
+profiles are converted into genomic tracks and compared with reference chromatin
+maps to test whether regional mutation patterns retain signals of earlier
+cellular organisation. A pan-cell-type benchmark evaluates track construction,
+bin size and scoring choices, identifying an exponential-decay, 0.5-Mb,
+residualised Spearman configuration as the strongest performer. The selected
+approach is then applied to TCGA-LIHC tumours using FOXA2-associated hepatocyte
+references, followed by clinical, expression, pathway and null analyses to
+assess interpretability and distinguish subtle reference-aligned chromatin
+similarities from definitive cell-of-origin claims in liver cancer.
+
 ## Results app
 
 Use the unified Streamlit results app to inspect the thesis figures, supporting
