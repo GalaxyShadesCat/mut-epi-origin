@@ -1,4 +1,0 @@
-clinical_variable,n_group0,n_group1,median_group0_adjusted,median_group1_adjusted,median_group1_minus_group0_adjusted,p_value_mannwhitney_adjusted,track
-hcv_status,49,19,0.0705836974565958,0.0925208465162712,0.0219371490596754,0.0003607676481287,Abnormal-like score
-hbv_status,25,43,0.087814777743895,0.0712643537623817,-0.0165504239815133,0.0179920175628769,Abnormal-like score
-hcv_status,49,19,0.0786746225682978,0.0991056161687464,0.0204309936004486,0.0011424127353503,Normal-like score

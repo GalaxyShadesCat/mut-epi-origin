@@ -1,0 +1,7 @@
+clinical_variable,display_name,n_total,test_type,p_value,foxa2_minus_fraction_group0,foxa2_minus_fraction_group1
+hbv_status,HBV status,68,fisher_exact,0.5269837976092037,0.24,0.16279069767441862
+hcv_status,HCV status,68,fisher_exact,1.0,0.1836734693877551,0.21052631578947367
+nafld_status,NAFLD status,68,fisher_exact,0.2409460052677788,0.1746031746031746,0.4
+fibrosis_present,Fibrosis present,68,fisher_exact,0.535143143902229,0.14285714285714285,0.225
+alcohol_status,Alcohol status,68,fisher_exact,0.7540987199138756,0.17073170731707318,0.2222222222222222
+obesity_binary,Obesity class,68,fisher_exact,0.7543954333740097,0.16,0.20930232558139536

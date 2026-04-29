@@ -1,5 +1,4 @@
 sample_id,mutations_post_downsample,score_gap,top1_correct,log10_mutation_burden,assignment,selected_scoring,selected_track,selected_bin_bp
-Zheng_BCC_WT1,197594,0.0016626636893197,False,5.295775950879731,Incorrect,spearman_linear_resid,exp_decay,500000.0
 TNKTL22,8870,0.0023503779076449,False,3.9479725792457803,Incorrect,spearman_linear_resid,exp_decay,500000.0
 LP6008280-DNA_H01,14949,0.0224418816408339,True,4.174641192660449,Correct,spearman_linear_resid,exp_decay,500000.0
 TNKTL13,7118,0.005194897365445,True,3.8524189929370016,Correct,spearman_linear_resid,exp_decay,500000.0
@@ -54,7 +53,6 @@ SM-4AX83,7011,0.0225584750990284,True,3.8458419074217574,Correct,spearman_linear
 LP6005690-DNA_H01,41401,0.033819518543164,True,4.617021321023896,Correct,spearman_linear_resid,exp_decay,500000.0
 LP6008269-DNA_C08,34231,0.041085165899641,True,4.534432273475876,Correct,spearman_linear_resid,exp_decay,500000.0
 TNKTL8,9795,0.0020634645615228,True,3.9910487764526765,Correct,spearman_linear_resid,exp_decay,500000.0
-Zheng_BCC_WT2,150754,0.0155683193556147,False,5.178271725033742,Incorrect,spearman_linear_resid,exp_decay,500000.0
 LP6005334-DNA_E01,20802,0.0329724551253637,True,4.318125969073185,Correct,spearman_linear_resid,exp_decay,500000.0
 EXTERN-MELA-20140530-020,1602,0.0091877135329586,True,3.204933522354145,Correct,spearman_linear_resid,exp_decay,500000.0
 2017_AML_03_T,7673,0.0186599327415845,False,3.8850217948622974,Incorrect,spearman_linear_resid,exp_decay,500000.0
@@ -90,7 +88,6 @@ LP6008221-DNA_H02,21323,0.023702875676918,True,4.328868673852926,Correct,spearma
 EXTERN-MELA-20140924-065,3310,0.0520213374533524,True,3.5199591807520685,Correct,spearman_linear_resid,exp_decay,500000.0
 EXTERN-MELA-20140924-023,95795,0.1567728670701521,True,4.981347375318676,Correct,spearman_linear_resid,exp_decay,500000.0
 TCGA-EE-A3J5,345037,0.1715700420817038,True,5.537866927773297,Correct,spearman_linear_resid,exp_decay,500000.0
-TCGA-14-1034-02B-01D-2280-08,109,0.0127590581532054,False,2.041392685158225,Incorrect,spearman_linear_resid,exp_decay,500000.0
 LP6008267-DNA_G01,19197,0.032084707679497,True,4.283255987338656,Correct,spearman_linear_resid,exp_decay,500000.0
 LP6008141-DNA_A01,27783,0.0380726429933409,True,4.443794770302706,Correct,spearman_linear_resid,exp_decay,500000.0
 EXTERN-MELA-20140514-004,79306,0.1699184833013786,True,4.899311521834685,Correct,spearman_linear_resid,exp_decay,500000.0

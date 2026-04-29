@@ -1,0 +1,3 @@
+clinical_variable,n_group0,n_group1,median_group0_adjusted,median_group1_adjusted,median_group1_minus_group0_adjusted,p_value_mannwhitney_adjusted
+hbv_status,25,43,0.08869744264939736,0.0832655117122922,-0.005431930937105159,0.0633094522196433
+hcv_status,49,19,0.07867462256829781,0.09910561616874643,0.020430993600448616,0.0011424127353503

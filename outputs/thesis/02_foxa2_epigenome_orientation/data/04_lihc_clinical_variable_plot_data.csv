@@ -1,0 +1,13 @@
+variable,level,n,total,percentage
+HBV status,No,25,68,36.76470588235294
+HBV status,Yes,43,68,63.23529411764706
+HCV status,No,49,68,72.05882352941177
+HCV status,Yes,19,68,27.941176470588236
+NAFLD status,No,63,68,92.6470588235294
+NAFLD status,Yes,5,68,7.352941176470588
+Fibrosis present,No,28,68,41.1764705882353
+Fibrosis present,Yes,40,68,58.8235294117647
+Alcohol status,No,41,68,60.294117647058826
+Alcohol status,Yes,27,68,39.705882352941174
+Obesity class,Not overweight,22,65,33.84615384615385
+Obesity class,Overweight,43,65,66.15384615384616

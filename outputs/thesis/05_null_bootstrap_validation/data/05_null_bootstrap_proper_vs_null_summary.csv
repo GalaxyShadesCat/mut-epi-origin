@@ -1,0 +1,8 @@
+metric,analysis_type,proper_count,null_mean,null_min,null_max,null_median,null_sd,null_n,p_null_ge_proper
+validation_n_p_le_0.05,Validation label-association tests,0.0,0.4,0.0,3.0,0.0,0.966091783079296,10,1.0
+validation_group_tests_n_p_le_0.05,Validation group tests,2.0,0.5,0.0,2.0,0.0,0.7071067811865476,10,0.1
+validation_group_tests_mb_adjusted_n_p_le_0.05,Mutation-burden-adjusted group tests,3.0,0.3,0.0,2.0,0.0,0.6749485577105528,10,0.0
+deseq_significant_genes,DESeq2 significant genes,0.0,0.0,0.0,0.0,0.0,0.0,10,1.0
+limma_significant_genes,limma-voom significant genes,4.0,0.4,0.0,2.0,0.0,0.6992058987801011,10,0.0
+fgsea_stat_significant_pathways,FGSEA-stat significant pathways,29.0,19.3,7.0,30.0,20.5,7.379400758568107,10,0.1
+fgsea_fc_significant_pathways,FGSEA logFC × −log10(p) significant pathways,0.0,0.5,0.0,2.0,0.0,0.7071067811865476,10,1.0

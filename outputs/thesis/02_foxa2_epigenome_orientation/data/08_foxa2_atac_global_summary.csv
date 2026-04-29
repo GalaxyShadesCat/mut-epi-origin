@@ -1,0 +1,9 @@
+metric,value
+n_bins,5776.0
+normal_mean,15.495213089704878
+abnormal_mean,17.002623819728885
+delta_median,0.5269411776727659
+absolute_delta_median,2.435317369735241
+absolute_delta_95th_percentile,14.570199443970223
+pearson_correlation,0.8993126364321272
+spearman_correlation,0.9309457919389218

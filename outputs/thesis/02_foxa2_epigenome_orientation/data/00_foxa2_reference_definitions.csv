@@ -1,0 +1,3 @@
+reference_id,thesis_label,source_cells,FOXA2_gate,ATAC_track
+foxa2_normal_pos,FOXA2+,Normal hepatocytes,FOXA2 expression > 0,data/processed/ATAC-seq/GSE281574/hg19/FOXA2_normal_pos.bigWig
+foxa2_abnormal_zero,FOXA2-,Diseased hepatocytes from AC and AH samples,FOXA2 expression == 0,data/processed/ATAC-seq/GSE281574/hg19/FOXA2_abnormal_zero.bigWig

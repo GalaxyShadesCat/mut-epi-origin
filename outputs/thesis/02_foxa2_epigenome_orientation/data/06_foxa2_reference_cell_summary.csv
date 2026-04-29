@@ -1,0 +1,22 @@
+CellTypeSR,Condition,reference_group,n_cells
+HSC,AC,Other cells,713
+HSC,AH,Other cells,930
+HSC,Normal,Other cells,470
+Hepatocyte,AC,FOXA2- reference cells,4135
+Hepatocyte,AC,Other cells,171
+Hepatocyte,AH,FOXA2- reference cells,3064
+Hepatocyte,AH,Other cells,232
+Hepatocyte,Normal,FOXA2+ reference cells,733
+Hepatocyte,Normal,Other cells,8120
+Kupffer Cell,AC,Other cells,940
+Kupffer Cell,AH,Other cells,1599
+Kupffer Cell,Normal,Other cells,808
+LSEC,AC,Other cells,869
+LSEC,AH,Other cells,1129
+LSEC,Normal,Other cells,1445
+Plasma Cell,AC,Other cells,52
+Plasma Cell,AH,Other cells,110
+Plasma Cell,Normal,Other cells,43
+T cell,AC,Other cells,359
+T cell,AH,Other cells,837
+T cell,Normal,Other cells,253

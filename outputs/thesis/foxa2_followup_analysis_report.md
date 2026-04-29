@@ -4,7 +4,7 @@
 
 ### Input files
 - Counts: `data/raw/rna/TCGA-LIHC.star_counts.tsv`
-- Inferred labels and scores: `outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/results.csv`
+- Inferred labels and scores: `outputs/thesis/04_differential_expression/data/source_inputs/sample_labels_used.csv`
 - Metadata: `data/derived/master_metadata.csv`
 
 ### Samples used
@@ -26,8 +26,8 @@
   - standard DESeq2 normalisation and dispersion framework
 
 ### Scripts used
-- Stepwise follow-up: `scripts/run_de_followups_stepwise.R`
-- limma immune-partition script: `scripts/partition_limma_hits_by_immune_signal.R`
+- Stepwise follow-up: `scripts/04_differential_expression/run_de_followups_stepwise.R`
+- limma immune-partition script: `scripts/04_differential_expression/partition_limma_hits_by_immune_signal.R`
 
 ---
 
@@ -68,7 +68,7 @@ Importantly, these are **all tumour samples**. This is **not** a tumour-versus-n
 
 Instead, the analysis asks:
 
-**Which tumour samples look more similar to the FOXA2-normal-like track, and which look more similar to the FOXA2-abnormal-like track?**
+**Which tumour samples look more similar to the FOXA2+ reference track, and which look more similar to the FOXA2- reference track?**
 
 So the result is best interpreted as a comparison of **two tumour subgroups**, not tumour versus normal liver.
 
@@ -147,14 +147,14 @@ In this cohort:
   - Pearson = `-0.174`
 
 ### Simple interpretation
-The **FOXA2-abnormal / FOXA2-low-like state** is associated with **higher FZD10**.
+The **FOXA2- aligned state** is associated with **higher FZD10**.
 
 This is important because FOXA2 is generally linked to a more normal, differentiated liver-cell state, while higher FZD10 is more consistent with a more aggressive or stem-like tumour state.
 
 So the direction of the result makes biological sense:
 
-- **more FOXA2-abnormal** -> **higher FZD10**
-- **more FOXA2-normal-like** -> **lower FZD10**
+- **more FOXA2-** -> **higher FZD10**
+- **more FOXA2+** -> **lower FZD10**
 
 This does **not** prove that FOXA2 directly regulates FZD10, but it does support a biologically coherent inverse relationship.
 
@@ -183,7 +183,7 @@ References:
 - PMC: https://pmc.ncbi.nlm.nih.gov/articles/PMC5836661/
 
 ### Overall consistency
-Our finding of **higher FZD10 in the FOXA2-abnormal group** is directionally consistent with a **more aggressive, less differentiated tumour state**.
+Our finding of **higher FZD10 in the FOXA2-FOXA2- group** is directionally consistent with a **more aggressive, less differentiated tumour state**.
 
 ---
 
@@ -307,11 +307,11 @@ Results (`n = 283` matched samples):
 2. `score_delta` vs `FZD10` expression
 - Spearman `r = 0.123`, `p = 0.039`
 - Pearson `r = 0.124`, `p = 0.037`
-- Interpretation: weak but statistically significant positive association (higher abnormal-like score with higher FZD10).
+- Interpretation: weak but statistically significant positive association (higher FOXA2- score with higher FZD10).
 
 3. Groupwise sanity check (wilcoxon)
 - FOXA2 expression (`foxa2_abnormal_zero` vs `foxa2_normal_pos`): `p = 0.878` (not different)
-- FZD10 expression (`foxa2_abnormal_zero` vs `foxa2_normal_pos`): `p = 0.00615` (higher in abnormal group)
+- FZD10 expression (`foxa2_abnormal_zero` vs `foxa2_normal_pos`): `p = 0.00615` (higher in FOXA2- group)
 
 Implication for config validation:
 - In this dataset, the config captures a programme-level state that aligns with FZD10 and pathway shifts, but not with a strong FOXA2 mRNA shift itself.
@@ -353,7 +353,7 @@ Preranked fgsea was run from DESeq2 result tables using:
   - `log2FC * -log10(p)` (the "FC × p-value signal" idea)
 
 Grid output directory:
-- `outputs/experiments/lihc_foxa2_top4_all_samples_per_sample_merged/de_followups_stepwise/step7_fgsea_deseq_grid/`
+- `outputs/thesis/04_differential_expression/data/source_inputs/`
 - Summary table: `.../step7_fgsea_deseq_grid/grid_summary.csv`
 
 ### Which approach is standard practice here

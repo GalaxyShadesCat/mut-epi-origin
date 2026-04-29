@@ -1,0 +1,3 @@
+assigned_state,n_samples,n_events,median_follow_up_years,median_survival_years,logrank_statistic,logrank_p_value
+FOXA2+,55,20,1.730321697467488,,0.09273,0.760734
+FOXA2-,13,3,1.626283367556468,,0.09273,0.760734

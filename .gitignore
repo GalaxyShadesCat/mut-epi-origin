@@ -12,6 +12,7 @@ __pycache__/
 venv/
 ENV/
 .env/
+.codex
 
 # Tooling caches
 .pytest_cache/
@@ -26,12 +27,15 @@ ENV/
 .DS_Store
 .idea/
 .vscode/
+.codex
 
 # Outputs
 outputs/*
 !outputs/thesis/
 !outputs/thesis/**
 archive/
+!outputs/thesis/archive/
+!outputs/thesis/archive/**
 
 # Tools
 tools/picard.jar

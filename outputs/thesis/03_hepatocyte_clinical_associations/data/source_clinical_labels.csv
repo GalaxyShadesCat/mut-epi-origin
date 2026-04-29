@@ -1,0 +1,69 @@
+sample_id,predicted_label,nafld_status,fibrosis_present,alcohol_status,hbv_status,hcv_status,obesity_class,fibrosis_ishak_score,age_at_initial_pathologic_diagnosis,vital_status,days_to_death,days_to_last_followup,lost_follow_up,primary_diagnosis,tumour_sample_type,normal_sample_type
+TCGA-BC-A217-01,foxa2_normal_pos,no,no,yes,no,no,Obesity Class I,0 - No Fibrosis,75,DECEASED,1397,421,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-BW-A5NO-01,foxa2_abnormal_zero,no,yes,no,no,yes,Obesity Class III,"3,4 - Fibrous Septa",50,LIVING,,20,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-BW-A5NP-01,foxa2_normal_pos,no,yes,no,yes,no,Obesity Class III,"3,4 - Fibrous Septa",26,LIVING,,0,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-BW-A5NQ-01,foxa2_normal_pos,no,yes,yes,no,no,Obesity Class III,6 - Established Cirrhosis,63,LIVING,,0,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A113-01,foxa2_normal_pos,no,no,no,yes,no,Normal,0 - No Fibrosis,55,LIVING,,2425,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A114-01,foxa2_normal_pos,no,yes,no,yes,yes,Normal,5 - Nodular Formation and Incomplete Cirrhosis,42,DECEASED,1149,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A115-01,foxa2_normal_pos,no,no,yes,yes,no,Overweight,0 - No Fibrosis,53,DECEASED,2542,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A119-01,foxa2_normal_pos,no,no,no,yes,no,Normal,0 - No Fibrosis,40,DECEASED,223,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A11A-01,foxa2_normal_pos,no,no,no,yes,no,Overweight,0 - No Fibrosis,67,LIVING,,79,YES,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A11B-01,foxa2_abnormal_zero,yes,yes,yes,yes,no,Obesity Class III,6 - Established Cirrhosis,73,DECEASED,14,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1E9-01,foxa2_normal_pos,no,yes,yes,yes,no,Obesity Class I,6 - Established Cirrhosis,70,DECEASED,2759,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Solid Tissue Normal
+TCGA-DD-A1EA-01,foxa2_normal_pos,no,yes,no,yes,no,Obesity Class I,"1,2 - Portal Fibrosis",68,LIVING,,2415,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EB-01,foxa2_normal_pos,no,no,no,yes,no,Normal,0 - No Fibrosis,72,LIVING,,2017,YES,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1ED-01,foxa2_normal_pos,no,no,yes,yes,no,Obesity Class I,0 - No Fibrosis,68,LIVING,,2301,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EE-01,foxa2_normal_pos,no,yes,no,yes,yes,Overweight,6 - Established Cirrhosis,73,DECEASED,349,204,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EF-01,foxa2_normal_pos,no,yes,no,yes,no,Obesity Class I,"3,4 - Fibrous Septa",57,DECEASED,394,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EH-01,foxa2_normal_pos,no,yes,no,yes,no,Normal,"3,4 - Fibrous Septa",23,LIVING,,1495,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EI-01,foxa2_abnormal_zero,no,yes,no,yes,no,Normal,6 - Established Cirrhosis,46,LIVING,,183,YES,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EJ-01,foxa2_abnormal_zero,no,no,no,yes,no,Overweight,0 - No Fibrosis,71,DECEASED,1005,887,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A1EL-01,foxa2_normal_pos,no,no,no,yes,no,Underweight,0 - No Fibrosis,23,DECEASED,415,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NF-01,foxa2_normal_pos,no,yes,no,yes,yes,Overweight,6 - Established Cirrhosis,72,LIVING,,942,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NH-01,foxa2_normal_pos,no,yes,yes,yes,no,Obesity Class I,"1,2 - Portal Fibrosis",65,LIVING,,917,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NJ-01,foxa2_abnormal_zero,yes,yes,yes,yes,no,Obesity Class I,"1,2 - Portal Fibrosis",54,LIVING,,928,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NK-01,foxa2_normal_pos,no,no,no,yes,no,Obesity Class III,0 - No Fibrosis,80,DECEASED,1210,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NN-01,foxa2_normal_pos,no,no,no,no,no,Normal,0 - No Fibrosis,56,DECEASED,899,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NO-01,foxa2_normal_pos,no,no,no,yes,yes,Obesity Class II,0 - No Fibrosis,65,LIVING,,2245,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NP-01,foxa2_normal_pos,no,no,no,yes,no,Overweight,0 - No Fibrosis,32,LIVING,,3308,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NR-01,foxa2_normal_pos,no,yes,no,yes,no,Obesity Class III,6 - Established Cirrhosis,85,DECEASED,9,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NS-01,foxa2_normal_pos,no,no,yes,yes,no,Normal,0 - No Fibrosis,61,DECEASED,2456,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A4NV-01,foxa2_normal_pos,yes,no,no,no,no,Obesity Class III,0 - No Fibrosis,61,LIVING,,2398,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A73B-01,foxa2_normal_pos,no,yes,no,yes,no,Obesity Class I,6 - Established Cirrhosis,72,DECEASED,283,,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A73D-01,foxa2_normal_pos,no,yes,no,yes,yes,Obesity Class II,6 - Established Cirrhosis,68,LIVING,,693,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A73E-01,foxa2_normal_pos,yes,no,yes,yes,no,Obesity Class II,0 - No Fibrosis,66,LIVING,,44,YES,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-DD-A73G-01,foxa2_abnormal_zero,no,no,no,yes,no,Underweight,0 - No Fibrosis,73,LIVING,,3478,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-EP-A26S-01,foxa2_normal_pos,no,no,yes,no,no,Underweight,0 - No Fibrosis,70,LIVING,,608,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-EP-A2KA-01,foxa2_normal_pos,no,yes,no,no,no,Obesity Class III,"1,2 - Portal Fibrosis",52,DECEASED,627,111,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-EP-A3RK-01,foxa2_normal_pos,no,yes,yes,no,no,Obesity Class I,"1,2 - Portal Fibrosis",73,LIVING,,363,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-FV-A3I1-01,foxa2_normal_pos,no,no,yes,yes,no,Obesity Class III,0 - No Fibrosis,81,DECEASED,247,0,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-FV-A495-01,foxa2_normal_pos,no,yes,no,no,yes,Normal,"3,4 - Fibrous Septa",51,LIVING,,1,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-FV-A496-01,foxa2_normal_pos,no,no,no,no,no,Normal,0 - No Fibrosis,84,LIVING,,10,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A25S-01,foxa2_normal_pos,no,yes,yes,no,no,Overweight,6 - Established Cirrhosis,64,DECEASED,416,37,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A25T-01,foxa2_normal_pos,no,no,no,no,yes,Normal,0 - No Fibrosis,45,LIVING,,1553,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A25U-01,foxa2_normal_pos,no,no,no,yes,no,Normal,0 - No Fibrosis,63,LIVING,,1636,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A25V-01,foxa2_abnormal_zero,no,yes,yes,no,no,Overweight,6 - Established Cirrhosis,68,LIVING,,860,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A25Y-01,foxa2_normal_pos,no,yes,no,yes,no,Normal,"3,4 - Fibrous Septa",52,DECEASED,452,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A25Z-01,foxa2_normal_pos,no,yes,no,yes,no,Normal,5 - Nodular Formation and Incomplete Cirrhosis,58,LIVING,,655,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A3CI-01,foxa2_normal_pos,yes,no,yes,no,no,Obesity Class II,0 - No Fibrosis,71,LIVING,,180,YES,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A3CJ-01,foxa2_normal_pos,no,yes,no,no,yes,Normal,5 - Nodular Formation and Incomplete Cirrhosis,52,LIVING,,594,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A5SI-01,foxa2_normal_pos,no,yes,no,no,yes,Normal,6 - Established Cirrhosis,44,DECEASED,768,447,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A5SJ-01,foxa2_normal_pos,no,yes,yes,no,yes,Overweight,6 - Established Cirrhosis,59,LIVING,,698,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A5SK-01,foxa2_normal_pos,no,yes,no,no,yes,Normal,6 - Established Cirrhosis,58,LIVING,,744,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A5SM-01,foxa2_normal_pos,no,yes,yes,no,yes,Obesity Class I,6 - Established Cirrhosis,58,LIVING,,520,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A6UC-01,foxa2_normal_pos,no,yes,yes,yes,no,Overweight,6 - Established Cirrhosis,65,LIVING,,671,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A7M5-01,foxa2_normal_pos,no,no,yes,yes,no,Overweight,0 - No Fibrosis,76,LIVING,,447,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A7M6-01,foxa2_abnormal_zero,no,yes,no,no,yes,Obesity Class I,"1,2 - Portal Fibrosis",60,LIVING,,632,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-G3-A7M7-01,foxa2_normal_pos,no,yes,yes,yes,no,Normal,"3,4 - Fibrous Septa",65,LIVING,,361,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-HP-A5N0-01,foxa2_abnormal_zero,no,no,no,no,no,Overweight,0 - No Fibrosis,90,DECEASED,1147,,NO,"Hepatocellular carcinoma, clear cell type",Primary Tumor,Blood Derived Normal
+TCGA-MI-A75E-01,foxa2_normal_pos,no,yes,yes,no,yes,Obesity Class I,"1,2 - Portal Fibrosis",61,LIVING,,507,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-MI-A75G-01,foxa2_normal_pos,no,yes,yes,no,yes,Normal,6 - Established Cirrhosis,63,LIVING,,698,YES,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-MI-A75H-01,foxa2_normal_pos,no,yes,no,no,yes,Overweight,6 - Established Cirrhosis,77,LIVING,,747,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-NI-A4U2-01,foxa2_normal_pos,no,yes,yes,no,no,Overweight,"1,2 - Portal Fibrosis",71,DECEASED,1791,,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-O8-A75V-01,foxa2_normal_pos,no,yes,yes,yes,yes,Overweight,6 - Established Cirrhosis,54,LIVING,,538,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-QA-A7B7-01,foxa2_normal_pos,no,no,no,yes,no,Obesity Class I,0 - No Fibrosis,48,LIVING,,94,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-RC-A7SB-01,foxa2_normal_pos,no,no,no,yes,no,Normal,0 - No Fibrosis,53,LIVING,,588,,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-UB-A7MB-01,foxa2_normal_pos,no,no,no,yes,no,Normal,0 - No Fibrosis,24,LIVING,,601,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-UB-A7MC-01,foxa2_normal_pos,no,yes,yes,yes,no,Overweight,"1,2 - Portal Fibrosis",59,LIVING,,500,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-UB-A7MD-01,foxa2_normal_pos,no,yes,yes,yes,yes,Normal,6 - Established Cirrhosis,67,DECEASED,52,,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
+TCGA-UB-A7ME-01,foxa2_abnormal_zero,no,yes,no,yes,no,Overweight,"1,2 - Portal Fibrosis",51,LIVING,,486,NO,"Hepatocellular carcinoma, NOS",Primary Tumor,Blood Derived Normal
