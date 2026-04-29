@@ -1,10 +1,12 @@
+"""Logging helpers for reproducible command-line analysis runs."""
+
 from __future__ import annotations
 
+from contextlib import contextmanager
+from dataclasses import dataclass
 import logging
 from pathlib import Path
 import time
-from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import Dict, Iterator, List, Optional, Tuple
 
 
@@ -21,7 +23,7 @@ def setup_rich_logging(
     force: bool = True,
 ) -> logging.Logger:
     """
-    Configure logging for compact console output without colors.
+    Configure logging for compact console output without colours.
     """
     logging.basicConfig(
         level=level,

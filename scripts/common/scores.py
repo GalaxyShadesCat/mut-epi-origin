@@ -135,9 +135,9 @@ def _corr_windows_spearman(xw: np.ndarray, yw: np.ndarray) -> np.ndarray:
 
 
 def _corr_windows(
-        xw: np.ndarray,
-        yw: np.ndarray,
-        method: str,
+    xw: np.ndarray,
+    yw: np.ndarray,
+    method: str,
 ) -> np.ndarray:
     if method == "pearson":
         return _corr_windows_pearson(xw, yw)
@@ -181,16 +181,16 @@ def _normalize_weights(weights: Iterable[float]) -> tuple[float, float]:
 
 
 def compute_local_scores(
-        M: np.ndarray,
-        D: np.ndarray,
-        *,
-        w: int,
-        corr_type: str = "pearson",
-        smoothing: str = "none",
-        smooth_param: float | int | None = None,
-        transform: str = "none",
-        zscore: bool = False,
-        weights: tuple[float, float] = (0.7, 0.3),
+    M: np.ndarray,
+    D: np.ndarray,
+    *,
+    w: int,
+    corr_type: str = "pearson",
+    smoothing: str = "none",
+    smooth_param: float | int | None = None,
+    transform: str = "none",
+    zscore: bool = False,
+    weights: tuple[float, float] = (0.7, 0.3),
 ) -> LocalScoreResult:
     """
     Compute per-bin correlation scores for two 1D tracks.
@@ -265,8 +265,11 @@ def compute_local_scores(
     weights_full[idx_start:idx_end] = weights_windows
 
     global_score = weighted_mean(total_window, weights_windows)
-    negative_corr_fraction = float(np.mean(shape_corr[np.isfinite(shape_corr)] < 0)) if np.isfinite(
-        shape_corr).any() else float("nan")
+    negative_corr_fraction = (
+        float(np.mean(shape_corr[np.isfinite(shape_corr)] < 0))
+        if np.isfinite(shape_corr).any()
+        else float("nan")
+    )
 
     return LocalScoreResult(
         total=total,
@@ -281,15 +284,15 @@ def compute_local_scores(
 
 
 def compute_scores_by_chrom(
-        tracks: dict[str, tuple[np.ndarray, np.ndarray]],
-        *,
-        w: int,
-        corr_type: str = "pearson",
-        smoothing: str = "none",
-        smooth_param: float | int | None = None,
-        transform: str = "none",
-        zscore: bool = False,
-        weights: tuple[float, float] = (0.7, 0.3),
+    tracks: dict[str, tuple[np.ndarray, np.ndarray]],
+    *,
+    w: int,
+    corr_type: str = "pearson",
+    smoothing: str = "none",
+    smooth_param: float | int | None = None,
+    transform: str = "none",
+    zscore: bool = False,
+    weights: tuple[float, float] = (0.7, 0.3),
 ) -> tuple[dict[str, LocalScoreResult], float]:
     results: dict[str, LocalScoreResult] = {}
     totals = []
@@ -312,7 +315,11 @@ def compute_scores_by_chrom(
     if totals:
         total_concat = np.concatenate(totals) if totals else np.array([], dtype=float)
         weights_concat = np.concatenate(weights_all) if weights_all else np.array([], dtype=float)
-        global_score = weighted_mean(total_concat, weights_concat) if len(total_concat) else float("nan")
+        global_score = (
+            weighted_mean(total_concat, weights_concat)
+            if len(total_concat)
+            else float("nan")
+        )
     else:
         global_score = float("nan")
     return results, global_score

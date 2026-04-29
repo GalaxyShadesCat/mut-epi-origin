@@ -1,3 +1,5 @@
+"""Tests for local mutation-accessibility scoring."""
+
 import numpy as np
 
 from scripts.common.scores import compute_local_scores
