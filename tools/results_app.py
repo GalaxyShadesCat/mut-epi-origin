@@ -96,7 +96,12 @@ def metric_card(label: str, value: str, caption: str = "") -> None:
 
 def image_with_caption(path: Path, caption: str, width: int = 760) -> None:
     if path.exists():
-        st.image(str(path), caption=caption, width=width)
+        if width >= 700:
+            _, image_col, _ = st.columns([1, 6, 1])
+            with image_col:
+                st.image(str(path), caption=caption, use_column_width=True)
+        else:
+            st.image(str(path), caption=caption, use_column_width=True)
     else:
         st.warning(f"Missing figure: {path.relative_to(THESIS_ROOT)}")
 
@@ -141,6 +146,30 @@ def static_panel_expander(section: str, panels: list[tuple[str, str]]) -> None:
 
 def cleaned_label(text: str) -> str:
     return str(text).replace("_", " ").replace("spearman linear resid", "spearman_linear_resid")
+
+
+def hallmark_label(pathway: str) -> str:
+    """Return a readable Hallmark pathway label."""
+    label = str(pathway).removeprefix("HALLMARK_").replace("_", " ").lower()
+    replacements = {
+        "e2f": "E2F",
+        "g2m": "G2M",
+        "myc": "MYC",
+        "v1": "v1",
+        "v2": "v2",
+        "tnfa": "TNFA",
+        "nfkb": "NFKB",
+        "il6": "IL6",
+        "jak": "JAK",
+        "stat3": "STAT3",
+        "pi3k": "PI3K",
+        "akt": "AKT",
+        "mtor": "MTOR",
+        "uv": "UV",
+        "dna": "DNA",
+    }
+    words = [replacements.get(word, word.capitalize()) for word in label.split()]
+    return " ".join(words)
 
 
 def add_neg_log10_p(df: pd.DataFrame, p_col: str = "padj") -> pd.DataFrame:
@@ -489,8 +518,12 @@ def set_style() -> None:
             border: 1px solid #d9dee7;
             border-radius: 7px;
             padding: 0.75rem 0.85rem;
-            min-height: 110px;
+            height: 125px;
             background: #ffffff;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
         }
         .metric-label {
             font-size: 0.82rem;
@@ -498,6 +531,8 @@ def set_style() -> None:
             font-weight: 650;
             text-transform: uppercase;
             letter-spacing: 0;
+            line-height: 1.25;
+            min-height: 2.1rem;
         }
         .metric-value {
             font-size: 1.65rem;
@@ -505,11 +540,14 @@ def set_style() -> None:
             font-weight: 760;
             color: #17202a;
             margin-top: 0.2rem;
+            overflow-wrap: anywhere;
         }
         .metric-caption {
             font-size: 0.86rem;
             color: #687385;
             margin-top: 0.35rem;
+            line-height: 1.35;
+            min-height: 2.3rem;
         }
         .section-note {
             border-left: 4px solid #6f7f92;
@@ -804,6 +842,7 @@ def render_track_visualisation() -> None:
             "Post-downsample mutations",
         )
 
+    st.markdown('<div style="height: 0.65rem;"></div>', unsafe_allow_html=True)
     if is_correct:
         st.success("Selected configuration assigns this sample to the correct benchmark cell type.")
     else:
@@ -1124,7 +1163,7 @@ def render_overview() -> None:
     n_expr = int(labels["sample"].nunique())
     n_null = int(null_summary["null_n"].max())
 
-    st.header("Thesis Results Dashboard")
+    st.header("Results Dashboard")
     st.markdown(
         """
         This app presents the curated thesis outputs in Results order and adds
@@ -1520,6 +1559,7 @@ def render_figure_3() -> None:
 def render_figure_4() -> None:
     st.header("Figure 4. Differential expression and pathway patterns")
     pathways = load_section_csv("Figure 4", "data", "fgsea_selected_pathways_for_lead_plot.csv")
+    all_pathways = load_section_csv("Figure 4", "data", "source_inputs", "fgsea_hallmark.csv")
     genes = load_section_csv("Figure 4", "data", "source_inputs", "limma_voom_binary_results.csv")
     gene_summary = load_section_csv(
         "Figure 4",
@@ -1545,12 +1585,52 @@ def render_figure_4() -> None:
         metric_card("limma-voom genes", f"{n_sig}", "FDR <= 0.05")
 
     st.subheader("Panel a: Hallmark pathway enrichment")
-    path_plot = pathways.copy()
+    all_pathways = all_pathways.copy()
+    all_pathways["pathway_label"] = all_pathways["pathway"].map(hallmark_label)
+    all_pathways["direction"] = np.where(
+        all_pathways["NES"] < 0,
+        "FOXA2+ aligned",
+        "FOXA2- aligned",
+    )
+    default_pathways = pathways["pathway"].tolist()
+    significant_pathways = all_pathways[
+        pd.to_numeric(all_pathways["padj"], errors="coerce").le(0.05)
+    ].copy()
+    extra_pathways = (
+        significant_pathways[~significant_pathways["pathway"].isin(default_pathways)]
+        .sort_values(["NES"], key=lambda values: values.abs(), ascending=False)
+    )
+    pathway_label_map = dict(zip(all_pathways["pathway"], all_pathways["pathway_label"]))
+    selected_extra_pathways = st.multiselect(
+        "Additional significant pathways",
+        extra_pathways["pathway"].tolist(),
+        default=[],
+        format_func=lambda value: pathway_label_map.get(value, value),
+        help="The thesis pathways are shown by default; add other FDR-significant Hallmark pathways here.",
+    )
+    selected_pathways = default_pathways + selected_extra_pathways
+    path_plot = all_pathways[all_pathways["pathway"].isin(selected_pathways)].copy()
+    path_plot["direction_order"] = np.where(path_plot["NES"] < 0, 0, 1)
+    path_plot["magnitude"] = path_plot["NES"].abs()
+    path_plot = path_plot.sort_values(
+        ["direction_order", "magnitude"],
+        ascending=[True, False],
+    )
+    path_plot["pathway_label"] = pd.Categorical(
+        path_plot["pathway_label"],
+        categories=path_plot["pathway_label"].tolist(),
+        ordered=True,
+    )
     path_chart = (
         alt.Chart(path_plot)
         .mark_bar()
         .encode(
-            y=alt.Y("pathway_label:N", title="Hallmark pathway", sort=list(path_plot["pathway_label"])),
+            y=alt.Y(
+                "pathway_label:N",
+                title="Hallmark pathway",
+                sort=list(path_plot["pathway_label"]),
+                axis=alt.Axis(labelLimit=520, labelPadding=8),
+            ),
             x=alt.X("NES:Q", title="Normalised enrichment score (NES)"),
             color=alt.condition("datum.NES < 0", alt.value(FOXA2_PLUS), alt.value(FOXA2_MINUS)),
             tooltip=[
@@ -1561,7 +1641,7 @@ def render_figure_4() -> None:
                 "leadingEdge",
             ],
         )
-        .properties(height=360)
+        .properties(height=max(360, 34 * len(path_plot)))
         .interactive()
     )
     st.altair_chart(path_chart, use_container_width=True)
@@ -1761,8 +1841,7 @@ def main() -> None:
         st.stop()
 
     with st.sidebar:
-        st.title("Results App")
-        st.caption("Curated outputs only")
+        st.title("Menu")
         page = st.radio(
             "Section",
             [
