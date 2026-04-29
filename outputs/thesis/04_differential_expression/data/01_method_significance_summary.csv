@@ -1,7 +1,0 @@
-analysis,tested_features,significant_fdr_0_05
-Binary DESeq2 (primary),9006,0
-Binary limma (primary),20218,4
-Continuous DESeq2 (step 1),20279,0
-Continuous DESeq2 + SVA (step 3),20279,0
-Hallmark-universe DESeq2 (step 4),4138,0
-Binary limma-voom (step 5 sensitivity),20279,11

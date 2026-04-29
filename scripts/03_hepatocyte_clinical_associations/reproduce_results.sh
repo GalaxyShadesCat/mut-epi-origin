@@ -20,12 +20,12 @@ set -u
 RESULT_NAME="03_hepatocyte_clinical_associations"
 
 # Reproduce:
-# outputs/thesis/03_hepatocyte_clinical_associations/03_hepatocyte_state_benchmark_results.csv
+# outputs/thesis/03_hepatocyte_clinical_associations/data/state_distribution_best_setup.csv
 # outputs/experiments/lihc_foxa2_clinical_complete/validation_summary.csv
 # outputs/experiments/lihc_foxa2_clinical_complete/validation_group_tests.csv
 # outputs/experiments/lihc_foxa2_clinical_complete/validation_group_tests_mutation_burden_adjusted.csv
 # outputs/experiments/lihc_foxa2_clinical_complete/validation_label_associations.csv
-CMD_FILE="outputs/thesis/03_hepatocyte_clinical_associations/03_hepatocyte_state_benchmark_run_command.txt"
+CMD_FILE="scripts/03_hepatocyte_clinical_associations/hepatocyte_state_benchmark_run_command.txt"
 if [[ ! -f "${CMD_FILE}" ]]; then
   echo "Missing command file: ${CMD_FILE}" >&2
   exit 1

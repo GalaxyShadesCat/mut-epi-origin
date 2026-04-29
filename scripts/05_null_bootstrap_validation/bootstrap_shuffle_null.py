@@ -722,7 +722,7 @@ def main() -> None:
             fgsea_stat_prefix = fgsea_dir / "fgsea_stat"
             fgsea_stat_cmd = [
                 "Rscript",
-                "scripts/pathway_enrichment/run_fgsea_from_de.R",
+                "scripts/04_differential_expression/run_fgsea_from_de.R",
                 "--de-results",
                 str(deseq_dir / "differential_expression_results_all.csv"),
                 "--rank-metric",
@@ -742,7 +742,7 @@ def main() -> None:
             fgsea_fc_prefix = fgsea_dir / "fgsea_logfc_times_neglog10p"
             fgsea_fc_cmd = [
                 "Rscript",
-                "scripts/pathway_enrichment/run_fgsea_from_de.R",
+                "scripts/04_differential_expression/run_fgsea_from_de.R",
                 "--de-results",
                 str(deseq_dir / "differential_expression_results_all.csv"),
                 "--rank-metric",

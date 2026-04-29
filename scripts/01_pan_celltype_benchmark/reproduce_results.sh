@@ -20,8 +20,8 @@ set -u
 RESULT_NAME="01_pan_celltype_benchmark"
 
 # Reproduce:
-# outputs/thesis/01_pan_celltype_benchmark/01_pan_celltype_benchmark_results.csv
-CMD_FILE="outputs/thesis/01_pan_celltype_benchmark/01_pan_celltype_benchmark_run_command.txt"
+# outputs/thesis/01_pan_celltype_benchmark/pan_celltype_benchmark_results.csv
+CMD_FILE="scripts/01_pan_celltype_benchmark/pan_celltype_benchmark_run_command.txt"
 if [[ ! -f "${CMD_FILE}" ]]; then
   echo "Missing command file: ${CMD_FILE}" >&2
   exit 1

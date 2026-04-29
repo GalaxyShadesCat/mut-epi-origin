@@ -1,5 +1,0 @@
-item,status,impact
-DESeq2 beta convergence,One row did not converge in beta,Low; isolated row-level warning
-Dispersion fit fallback,Parametric trend substituted with local fit,Low; model fit handled automatically
-Annotation mapping,1:many mapping warning from select(),Low; annotation-level mapping note
-msigdbr deprecation,category argument deprecated in favour of collection,None on current results; update script for future-proofing

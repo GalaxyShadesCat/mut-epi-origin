@@ -17,18 +17,44 @@ if [[ "${CONDA_DEFAULT_ENV:-}" != "mut-epi-origin" ]]; then
 fi
 set -u
 
-RESULT_NAME="pathway_enrichment"
+RESULT_NAME="04_differential_expression"
+DE_OUT_DIR="outputs/experiments/lihc_foxa2_all_samples/de_exp_decay_500k_spearman_r_linear_resid"
+LIMMA_OUT_DIR="outputs/experiments/lihc_foxa2_all_samples/de_limma_exp_decay_500k_spearman_r_linear_resid"
 
-# Reproduce thesis-linked pathway outputs under:
-# outputs/thesis/pathway_enrichment/
-OUT_DIR="outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_deseq_grid"
-FIG_DIR="outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/figures_fgsea"
-mkdir -p "${OUT_DIR}" "${FIG_DIR}"
+# Reproduce primary thesis DE output:
+# outputs/thesis/04_differential_expression/data/source_inputs/limma_voom_binary_results.csv
+# Binary DESeq2 run (main thesis DE table).
+Rscript scripts/04_differential_expression/run_differential_expression_by_inferred_labels.R \
+  --counts-path data/raw/rna/TCGA-LIHC.star_counts.tsv \
+  --results-path outputs/experiments/lihc_foxa2_all_samples/results.csv \
+  --metadata-path data/derived/master_metadata.csv \
+  --metadata-sample-col tumour_sample_submitter_id \
+  --covariates age_at_diagnosis,gender,ajcc_pathologic_stage \
+  --output-dir "${DE_OUT_DIR}" \
+  --track-strategy exp_decay \
+  --bin-size 500000 \
+  --scoring-system spearman_r_linear_resid \
+  --state-labels foxa2_normal_pos,foxa2_abnormal_zero \
+  --contrast-case foxa2_abnormal_zero \
+  --contrast-control foxa2_normal_pos
 
-# Ensure DE inputs exist.
-bash scripts/04_differential_expression/reproduce_result.sh
+# Binary limma-voom run (paired with DESeq2 labels from this run).
+Rscript scripts/04_differential_expression/run_limma_by_inferred_labels.R \
+  --counts-path data/raw/rna/TCGA-LIHC.star_counts.tsv \
+  --labels-path "${DE_OUT_DIR}/sample_labels_used.csv" \
+  --output-dir "${LIMMA_OUT_DIR}" \
+  --contrast-case foxa2_abnormal_zero \
+  --contrast-control foxa2_normal_pos
 
-# Build fgsea grid across model variants and rank metrics.
+# Stepwise follow-up run producing thesis-linked outputs under:
+# outputs/thesis/04_differential_expression/
+Rscript scripts/04_differential_expression/run_de_followups_stepwise.R
+
+# Build the pathway-enrichment grid across model variants and rank metrics.
+FGSEA_OUT_DIR="outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_deseq_grid"
+FGSEA_FIG_DIR="outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/figures_fgsea"
+mkdir -p "${FGSEA_OUT_DIR}" "${FGSEA_FIG_DIR}"
+
 for spec in \
   "step1_continuous|outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step1_continuous_deseq_results.csv" \
   "step3_continuous_sva|outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step3_continuous_deseq_with_sva_results.csv" \
@@ -40,18 +66,18 @@ do
   de_path="${spec##*|}"
   for metric in stat sign_logfc_neglog10p logfc_times_neglog10p
   do
-    Rscript scripts/pathway_enrichment/run_fgsea_from_de.R \
+    Rscript scripts/04_differential_expression/run_fgsea_from_de.R \
       --de-results "${de_path}" \
       --rank-metric "${metric}" \
       --gene-sets-source msigdb \
       --msigdb-collection H \
-      --out-prefix "${OUT_DIR}/${name}__${metric}"
+      --out-prefix "${FGSEA_OUT_DIR}/${name}__${metric}"
   done
 done
 
-# Summarise fgsea grid results.
 python - <<'PY'
 from pathlib import Path
+
 import pandas as pd
 
 out_dir = Path("outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step7_fgsea_deseq_grid")
@@ -80,7 +106,6 @@ for summary in sorted(out_dir.glob("*_fgsea_summary.txt")):
 pd.DataFrame(rows).sort_values(["input", "metric"]).to_csv(out_dir / "grid_summary.csv", index=False)
 PY
 
-# Rebuild two thesis figures from the step1/stat ranking.
 Rscript - <<'RS'
 suppressPackageStartupMessages({
   library(data.table)
@@ -97,7 +122,7 @@ stats <- rk$score
 names(stats) <- rk$gene
 stats <- sort(stats, decreasing = TRUE)
 
-hallmark <- as.data.table(msigdbr(species = "Homo sapiens", category = "H"))
+hallmark <- as.data.table(msigdbr(species = "Homo sapiens", collection = "H"))
 pathways <- split(hallmark$gene_symbol, hallmark$gs_name)
 
 for (pw in c("HALLMARK_OXIDATIVE_PHOSPHORYLATION", "HALLMARK_TNFA_SIGNALING_VIA_NFKB")) {

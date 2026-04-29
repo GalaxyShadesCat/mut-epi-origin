@@ -7,7 +7,7 @@
 #' on test statistic, signed significance, or fold-change weighted significance.
 #'
 #' Example:
-#' Rscript scripts/pathway_enrichment/run_fgsea_from_de.R \
+#' Rscript scripts/04_differential_expression/run_fgsea_from_de.R \
 #'   --de-results outputs/experiments/lihc_foxa2_all_samples/de_followups_stepwise/step6_deseq2_limma_gene_pool_results.csv \
 #'   --rank-metric logfc_times_neglog10p \
 #'   --gene-sets-source msigdb \
@@ -26,7 +26,7 @@ usage <- function() {
   cat(
     paste(
       "Usage:",
-      "Rscript scripts/pathway_enrichment/run_fgsea_from_de.R",
+      "Rscript scripts/04_differential_expression/run_fgsea_from_de.R",
       "  --de-results <path>",
       "  [--gene-col gene]",
       "  [--logfc-col log2FoldChange]",
