@@ -17,8 +17,7 @@ similarities from definitive cell-of-origin claims in liver cancer.
 ## Results app
 
 Use the unified Streamlit results app to inspect the thesis figures, supporting
-tables, and interactive track visualisation. This is the only maintained app
-entrypoint for result exploration.
+tables, and interactive track visualisation.
 
 ```bash
 conda activate mut-epi-origin
