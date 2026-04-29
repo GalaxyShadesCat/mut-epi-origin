@@ -143,7 +143,7 @@ The thesis scripts call these core tools:
 - `scripts/04_differential_expression/run_fgsea_from_de.R` for pathway enrichment from ranked DE results.
 - `scripts/05_null_bootstrap_validation/bootstrap_shuffle_null.py` for the mutation-randomised null benchmark.
 
-For the grid-search runner details, see [`scripts/grid_search/README.md`](scripts/grid_search/README.md). For the full script layout, see [`scripts/README.md`](scripts/README.md).
+For the full script layout, see [`scripts/README.md`](scripts/README.md).
 
 ### Notes on cohort logic
 
